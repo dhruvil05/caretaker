@@ -1,0 +1,15 @@
+{
+  "importance_threshold": 0.4,
+  "hot_score_threshold": 0.5,
+  "priority_hot_score": 0.7,
+  "archive_score": 0.2,
+  "max_token_budget": 800,
+  "default_budget": 280,
+  "decay_rate": 0.05,
+  "compression_model": "claude-haiku-4-5-20251001",
+  "supabase_url": "",
+  "supabase_key": "",
+  "encrypt_key": "",
+  "maintenance_time": "02:00",
+  "user_handle": "Dhruvil"
+}

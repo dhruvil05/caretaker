@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "caretaker": {
+      "command": "C:\\Users\\dell\\.local\\bin\\uv.exe",
+      "args": [
+        "run",
+        "--project",
+        "C:\\Users\\dell\\Desktop\\Project Tomorrow\\packages\\caretaker",
+        "python",
+        "C:\\Users\\dell\\Desktop\\Project Tomorrow\\packages\\caretaker\\mcp_server\\server.py"
+      ]
+    }
+  }
+}
