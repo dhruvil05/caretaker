@@ -5,6 +5,7 @@ description = "Universal memory layer for AI agents"
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=0.97.0",
+    "chromadb>=1.5.8",
     "fastmcp>=3.2.4",
     "pytest>=9.0.3",
 ]

@@ -95,3 +95,33 @@ def get_all_active_memories() -> list:
     with get_connection() as conn:
         rows = conn.execute(sql).fetchall()
     return [dict(r) for r in rows]
+
+def update_memory(memory_id: str, fields: dict) -> bool:
+    """
+    Update any fields on a memory row by ID.
+    Phase 2 addition — used by conflict_checker and compression callback.
+
+    Args:
+        memory_id: UUID of memory to update.
+        fields:    Dict of column → value pairs to update.
+
+    Returns:
+        True on success, False on error.
+    """
+    if not fields:
+        return False
+
+    now = datetime.now(timezone.utc).isoformat()
+    fields["updated_at"] = now
+
+    set_clause = ", ".join(f"{col} = ?" for col in fields)
+    values     = list(fields.values()) + [memory_id]
+    sql        = f"UPDATE memories SET {set_clause} WHERE id = ?"
+
+    try:
+        with get_connection() as conn:
+            conn.execute(sql, values)
+        return True
+    except Exception as e:
+        print(f"[DB] update_memory error: {e}")
+        return False
