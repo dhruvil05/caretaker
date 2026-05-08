@@ -1,13 +1,12 @@
 L0_SIGNALS = ["hi", "hello", "hey", "what's up", "howdy", "greetings"]
 
 L1_SIGNALS = [
-    "what", "when", "who", "where", "quick", "simple",
-    "tell me", "show me", "list", "give me",
+    "quick", "simple", "list", "name",
 ]
 
 L2_SIGNALS = [
-    "explain", "help", "how to", "understand", "why",
-    "describe", "what is", "what are", "can you",
+    "help", "how to", "understand", "describe",
+    "what is", "what are", "can you",
 ]
 
 L3_SIGNALS = [
@@ -18,11 +17,27 @@ L3_SIGNALS = [
 L4_SIGNALS = [
     "architecture", "full flow", "design", "entire system",
     "structure", "plan", "overview", "deep dive", "all of",
+    "phase", "pipeline", "integration",
 ]
 
 L5_SIGNALS = [
     "remember everything", "full context", "everything about",
     "complete history", "all memories", "everything you know",
+    "what do you know about me", "know about me",
+    "tell me everything", "full picture",
+]
+
+# ── Phase 2: Memory/identity queries → always L4 minimum ──────────────────────
+# These questions need LOTS of context to answer well
+MEMORY_QUERY_SIGNALS = [
+    "what do you know", "what do you remember",
+    "what project", "what are we", "what were we",
+    "where were we", "where did we", "last session",
+    "previously", "last time", "we discussed",
+    "what have we", "tell me about caretaker",
+    "about me", "know about", "our project",
+    "what we built", "what we made", "caretaker",
+    "phase 2", "phase 1", "phase 3",
 ]
 
 LEVEL_BUDGET = {
@@ -38,6 +53,11 @@ LEVEL_BUDGET = {
 def detect_topic(message: str) -> dict:
     msg_lower = message.lower()
 
+    # ── Phase 2: memory/identity queries → L4 minimum ─────────────────────
+    if any(s in msg_lower for s in MEMORY_QUERY_SIGNALS):
+        return {"level": "L4", "budget": LEVEL_BUDGET["L4"]}
+
+    # ── Phase 1: signal matching (unchanged logic) ─────────────────────────
     if any(s in msg_lower for s in L5_SIGNALS):
         level = "L5"
     elif any(s in msg_lower for s in L4_SIGNALS):
