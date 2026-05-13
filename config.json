@@ -1,4 +1,8 @@
 {
+  "_comment": "Caretaker Config — Phase 1 fields preserved + Phase 2 additions",
+
+  "user_handle": "Dhruvil",
+
   "importance_threshold": 0.4,
   "hot_score_threshold": 0.5,
   "priority_hot_score": 0.7,
@@ -6,10 +10,42 @@
   "max_token_budget": 800,
   "default_budget": 280,
   "decay_rate": 0.05,
-  "compression_model": "claude-haiku-4-5-20251001",
+
   "supabase_url": "",
   "supabase_key": "",
   "encrypt_key": "",
   "maintenance_time": "02:00",
-  "user_handle": "Dhruvil"
+
+  "_comment_compression": "Phase 2 — Set compression_model to 'local' for free spaCy+TextRank. Set to 'claude-haiku-4-5-20251001' for paid Haiku API.",
+  "compression_model": "claude-haiku-4-5-20251001",
+  "anthropic_api_key": "",
+  "long_message_threshold_tokens": 400,
+  "max_short_tokens": 60,
+  "max_full_tokens": 300,
+
+  "_comment_memory": "Phase 2 — Temperature decay and conflict resolution settings",
+  "conflict_similarity_threshold": 0.75,
+  "temperature_decay": {
+    "hot_to_warm_days": 7,
+    "warm_to_cold_days": 14
+  },
+
+  "_comment_retrieval": "Phase 2 — Budget levels and search settings",
+  "include_cold_in_search": false,
+  "budget_levels": {
+    "L0": 80,
+    "L1": 200,
+    "L2": 350,
+    "L3": 500,
+    "L4": 650,
+    "L5": 800
+  },
+
+  "_comment_scheduler": "Phase 2 — Background compression queue settings",
+  "compression_queue_max_size": 500,
+  "compression_max_retries": 3,
+  "compression_base_backoff_seconds": 2.0,
+  "database": {
+    "chromadb_path": "C:/Users/dell/Desktop/Project Tomorrow/packages/caretaker/data/chromadb"
+  }
 }

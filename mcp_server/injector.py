@@ -59,10 +59,16 @@ def _get_relevant_memories(relevant: list, use_full: bool) -> str:
 
     lines = []
     for mem in relevant[:8]:
-        temp    = mem.get("temperature", "HOT")
-        mtype   = mem.get("type", "MEMORY")
-        status  = mem.get("status", "ACTIVE")
-        content = mem.get("full") if use_full else (mem.get("short") or mem.get("full", ""))
+        temp   = mem.get("temperature", "HOT")
+        # Phase 2 fix: support both "type" and "memory_type"
+        mtype  = mem.get("type") or mem.get("memory_type", "MEMORY")
+        status = mem.get("status", "ACTIVE")
+
+        # Phase 2 fix: support both "full" and "full_text"
+        if use_full:
+            content = mem.get("full") or mem.get("full_text", "")
+        else:
+            content = mem.get("short") or mem.get("full") or mem.get("full_text", "")
 
         if not content:
             continue
@@ -76,7 +82,7 @@ def _get_relevant_memories(relevant: list, use_full: bool) -> str:
 
         lines.append(f"{label} {content}")
 
-    return "\n".join(lines)
+    return "\n".join(lines) if lines else "No relevant memories found."
 
 
 def build_whisper(context: dict) -> str:
