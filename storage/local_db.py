@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-DB_PATH = Path(__file__).parent.parent / "new_caretaker.db"
+DB_PATH = Path(__file__).parent.parent / "caretaker.db"
 MIGRATION_PATH = Path(__file__).parent / "migrations" / "v001_initial.sql"
 
 

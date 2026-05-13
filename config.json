@@ -44,5 +44,8 @@
   "_comment_scheduler": "Phase 2 — Background compression queue settings",
   "compression_queue_max_size": 500,
   "compression_max_retries": 3,
-  "compression_base_backoff_seconds": 2.0
+  "compression_base_backoff_seconds": 2.0,
+  "database": {
+    "chromadb_path": "C:/Users/dell/Desktop/Project Tomorrow/packages/caretaker/data/chromadb"
+  }
 }
