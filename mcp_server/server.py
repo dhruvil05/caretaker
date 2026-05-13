@@ -104,7 +104,12 @@ async def _startup():
     # Phase 2: initialise VectorDB
     print("[CARETAKER] Initialising VectorDB (ChromaDB)...")
     try:
-        chromadb_path = _config.get("database", {}).get("chromadb_path", "./data/chromadb")
+        # Get absolute path relative to THIS FILE — not working directory!
+        _PROJECT_ROOT = Path(__file__).parent.parent  # packages/caretaker/
+        chromadb_path = _config.get("database", {}).get(
+            "chromadb_path",
+            str(_PROJECT_ROOT / "data" / "chromadb")  # ALWAYS absolute!
+        )
         _vector_db = VectorDB(persist_directory=chromadb_path)
         _vector_db.initialize()
         print(f"[CARETAKER] VectorDB ready. Memories indexed: {_vector_db.count()}")
@@ -160,6 +165,9 @@ async def _startup():
         except Exception as e:
             print(f"[CARETAKER] Maintenance scheduler failed: {e}")
 
+    print(f"[CARETAKER] CWD: {os.getcwd()}")
+    print(f"[CARETAKER] ChromaDB path: {chromadb_path}")
+    print(f"[CARETAKER] ChromaDB exists: {Path(chromadb_path).exists()}")
     print("[CARETAKER] Starting MCP server...")
 
 
