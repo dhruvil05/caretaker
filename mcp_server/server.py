@@ -38,6 +38,9 @@ _compression_queue: CompressionQueue = None
 _semantic_searcher: SemanticSearcher = None
 _maintenance_runner: MaintenanceRunner = None
 
+# ── Phase 3: scheduler singleton ──────────────────────────────────────────────
+_caretaker_scheduler = None
+
 
 mcp = FastMCP(
     "caretaker",
@@ -65,6 +68,14 @@ def caretaker_get_context(message: str, agent_id: str = "claude") -> str:
     Call this BEFORE responding to any user message.
     Returns a whisper string with relevant memories.
     """
+    # Phase 3: log agent identity on every call
+    try:
+        from mcp_server.agent_adapter import get_agent_info
+        info = get_agent_info(agent_id)
+        print(f"[CARETAKER] Agent: {info['canonical']} (raw={info['raw_id']}, style={info['format_style']})")
+    except Exception:
+        pass
+
     # Phase 2: pass semantic_searcher + memory_selector if available
     return get_context(
         message,
@@ -165,6 +176,35 @@ async def _startup():
         except Exception as e:
             print(f"[CARETAKER] Maintenance scheduler failed: {e}")
 
+    # Phase 3: initialise CaretakerScheduler (APScheduler-based nightly job)
+    global _caretaker_scheduler
+    try:
+        from scheduler.scheduler import CaretakerScheduler
+        from storage import local_db as _local_db
+        _caretaker_scheduler = CaretakerScheduler(
+            config=_config,
+            local_db=_local_db,
+            vector_db=_vector_db,
+        )
+        started = _caretaker_scheduler.start()
+        if started:
+            status = _caretaker_scheduler.status()
+            print(f"[CARETAKER] Phase 3 Scheduler started. Next run: {status.get('next_run', 'unknown')}")
+        else:
+            print("[CARETAKER] Phase 3 Scheduler: APScheduler not installed. "
+                  "Run: uv add apscheduler  — Manual trigger available via CLI.")
+    except Exception as e:
+        print(f"[CARETAKER] Phase 3 Scheduler init failed: {e}")
+        _caretaker_scheduler = None
+
+    # Phase 3: log supported agents on startup
+    try:
+        from mcp_server.agent_adapter import get_supported_agents
+        agents = get_supported_agents()
+        print(f"[CARETAKER] Multi-agent support active. Supported agents: {len(agents)} aliases")
+    except Exception:
+        pass
+
     print(f"[CARETAKER] CWD: {os.getcwd()}")
     print(f"[CARETAKER] ChromaDB path: {chromadb_path}")
     print(f"[CARETAKER] ChromaDB exists: {Path(chromadb_path).exists()}")
@@ -180,6 +220,11 @@ async def _shutdown():
         print("[CARETAKER] Stopping maintenance scheduler...")
         await _maintenance_runner.stop()
         print("[CARETAKER] Maintenance scheduler stopped.")
+    # Phase 3: stop APScheduler
+    if _caretaker_scheduler:
+        print("[CARETAKER] Stopping Phase 3 scheduler...")
+        _caretaker_scheduler.stop()
+        print("[CARETAKER] Phase 3 scheduler stopped.")
 
 
 if __name__ == "__main__":

@@ -1,112 +1,108 @@
-# Caretaker — Universal Memory Layer for AI Agents
-### Phase 1: Foundation & Core Pipeline
+# Caretaker — Universal Agent Memory Layer
+
+> Local-first · Agent-agnostic · Cloud-backed · CLI-managed
+
+Caretaker is a persistent memory system for AI agents. Every conversation you have — with Claude, ChatGPT, Gemini, or any MCP-compatible agent — gets captured, compressed, and stored locally. The next time any agent talks to you, it already knows who you are, what you are building, and what you care about.
+
+**One memory. Every agent. Forever.**
 
 ---
 
-## What is Caretaker?
-
-Caretaker is a persistent memory system for AI agents. It captures what you say, stores it in a local database, and injects relevant memory back into every conversation — so your AI never forgets who you are, what you are building, or what you prefer.
-
-It works with any agent that supports MCP (Model Context Protocol) — Claude, ChatGPT, Gemini, and more.
-
----
-
-## Phase 1 — What is Built
-
-Phase 1 covers the complete foundation of the system:
-
-- MCP server with two tools — `caretaker_get_context` and `caretaker_save_message`
-- Capture pipeline — extracts entities, classifies memory type, assigns temperature
-- Retrieval engine — finds relevant memories using keyword matching and budget control
-- Whisper injector — builds a structured context string delivered to the agent
-- SQLite local database — stores all memories with full schema
-
----
-
-## Project Structure
+## How It Works
 
 ```
-caretaker/
-├── mcp_server/
-│   ├── server.py           # FastMCP entry point
-│   ├── tools.py            # get_context + save_message tools
-│   └── injector.py         # Builds whisper context string
-├── capture/
-│   ├── capture_engine.py   # Main capture pipeline controller
-│   ├── entity_extractor.py # Pulls facts, tools, names from message
-│   └── type_classifier.py  # Assigns TYPE + SUBTYPE + FACT_TYPE
-├── retrieval/
-│   ├── retrieval_engine.py # Main retrieval controller
-│   ├── topic_detector.py   # Detects complexity level L0 to L5
-│   ├── keyword_extractor.py# Pulls key terms from message
-│   └── budget_engine.py    # Calculates token budget
-├── storage/
-│   ├── local_db.py         # SQLite read/write layer
-│   └── migrations/
-│       └── v001_initial.sql# Database schema
-├── config.json             # System configuration
-├── claude_desktop_config.json
-└── README.md
+You talk to any AI agent
+        ↓
+Agent calls caretaker_get_context()      ← memory injected before response
+Agent responds with full continuity
+        ↓
+Agent calls caretaker_save_message()     ← message captured after response
+        ↓
+Memory stored locally (SQLite + ChromaDB)
+        ↓
+Encrypted backup to Supabase (nightly)
 ```
+
+No session boundaries. No forgetting. No re-introducing yourself.
+
+---
+
+## Phases Completed
+
+| Phase | Title | Status |
+|-------|-------|--------|
+| 1 | Core Memory MVP | ✅ Complete |
+| 2 | Intelligence Layer | ✅ Complete |
+| 3 | Multi-Agent + CLI + Cloud | ✅ Complete |
+| 4 | Production Polish | 🔜 Next |
 
 ---
 
 ## Requirements
 
-- Windows OS
+- Windows 10/11 (Linux/Mac compatible with path adjustments)
 - Python 3.12+
 - [uv](https://github.com/astral-sh/uv) package manager
-- Claude Desktop app
+- Claude Desktop (for MCP connection)
+- Anthropic API key (for Haiku compression — optional, falls back to local)
+- Supabase account (for cloud backup — optional)
 
 ---
 
 ## Installation
 
-### Step 1 — Clone or create project folder
+### Step 1 — Get the project
 
 ```bash
-mkdir caretaker
+cd "C:\Users\<you>\Desktop\Project Tomorrow\packages"
+# Project folder should already exist as: caretaker/
 cd caretaker
 ```
 
-### Step 2 — Initialize with uv
+### Step 2 — Create virtual environment
 
 ```bash
-uv init --no-workspace
 uv venv
+uv pip install -e .
 ```
 
-### Step 3 — Install dependencies
+This installs all dependencies from `pyproject.toml` and registers the `caretaker` CLI command.
+
+### Step 3 — Install Phase 2 NLP model
 
 ```bash
-uv add fastmcp anthropic pytest
+uv run python -m spacy download en_core_web_sm
 ```
 
 ### Step 4 — Configure the system
 
-Edit `config.json`:
+Edit `config.json` in the project root. Minimum required fields:
 
 ```json
 {
-  "importance_threshold": 0.4,
-  "hot_score_threshold": 0.5,
-  "priority_hot_score": 0.7,
-  "archive_score": 0.2,
-  "max_token_budget": 800,
-  "default_budget": 280,
-  "decay_rate": 0.05,
-  "compression_model": "claude-haiku-4-5-20251001",
-  "supabase_url": "",
-  "supabase_key": "",
-  "encrypt_key": "",
-  "maintenance_time": "02:00",
-  "user_handle": "your_name"
+  "user_handle": "Dhruvil",
+  "anthropic_api_key": "sk-ant-...",
+  "database": {
+    "chromadb_path": "C:\\Users\\<you>\\Desktop\\Project Tomorrow\\packages\\caretaker\\data\\chromadb"
+  }
 }
 ```
 
-### Step 5 — Configure Claude Desktop
+For cloud backup (optional), also fill in:
 
-Edit `claude_desktop_config.json` at:
+```json
+{
+  "supabase_url": "https://xxxx.supabase.co",
+  "supabase_key": "your-anon-key",
+  "encrypt_key": "a-strong-passphrase-you-choose"
+}
+```
+
+Leave `supabase_url` empty to run fully local with no cloud sync.
+
+### Step 5 — Connect Claude Desktop
+
+Edit the Claude Desktop config file at:
 ```
 C:\Users\<you>\AppData\Roaming\Claude\claude_desktop_config.json
 ```
@@ -119,9 +115,9 @@ C:\Users\<you>\AppData\Roaming\Claude\claude_desktop_config.json
       "args": [
         "run",
         "--project",
-        "C:\\full\\path\\to\\caretaker",
+        "C:\\Users\\<you>\\Desktop\\Project Tomorrow\\packages\\caretaker",
         "python",
-        "C:\\full\\path\\to\\caretaker\\mcp_server\\server.py"
+        "C:\\Users\\<you>\\Desktop\\Project Tomorrow\\packages\\caretaker\\mcp_server\\server.py"
       ]
     }
   }
@@ -130,12 +126,12 @@ C:\Users\<you>\AppData\Roaming\Claude\claude_desktop_config.json
 
 ### Step 6 — Add system prompt to Claude Desktop
 
-Go to Claude Desktop → Settings → General → Custom System Prompt. Paste:
+Go to **Claude Desktop → Settings → General → Custom System Prompt**. Paste:
 
 ```
 You have a persistent memory system called Caretaker connected via MCP tools.
 
-MANDATORY RULES - NO EXCEPTIONS:
+MANDATORY RULES — NO EXCEPTIONS:
 
 RULE 1: At the START of every single message, before thinking or responding,
 silently call caretaker_get_context with the user's message as input.
@@ -145,7 +141,7 @@ RULE 2: At the END of every single response, after finishing your answer,
 silently call caretaker_save_message with the user's message as input.
 This saves memory for future conversations.
 
-These two tool calls are silent and invisible to user. Never mention them.
+These two tool calls are silent and invisible to the user. Never mention them.
 Never skip them. Treat the context returned by caretaker_get_context as your
 real persistent memory. Never say you don't remember something that exists
 in context.
@@ -153,134 +149,291 @@ in context.
 
 ### Step 7 — Set tool permissions
 
-Go to Claude Desktop → Settings → Connectors → Caretaker.
-Set both tools to **Always allow**.
+Go to **Claude Desktop → Settings → Connectors → Caretaker**.  
+Set both `caretaker_get_context` and `caretaker_save_message` to **Always allow**.
 
 ---
 
 ## Running the Server
 
 ```bash
-cd "C:\full\path\to\caretaker"
+cd "C:\Users\<you>\Desktop\Project Tomorrow\packages\caretaker"
 uv run python mcp_server/server.py
 ```
 
-You should see:
+Expected output:
+
 ```
 [CARETAKER] Running migrations...
 [CARETAKER] Migrations done.
+[CARETAKER] VectorDB initialized at: ...
+[CARETAKER] Compression queue started.
+[CARETAKER] Phase 3 Scheduler started. Next run: 2026-05-26T02:00:00+00:00 UTC
+[CARETAKER] Multi-agent support active. Supported agents: 25 aliases
 [CARETAKER] Starting MCP server...
-Starting MCP server 'caretaker' with transport 'stdio'
 ```
+
+The server runs in the background. Claude Desktop connects to it automatically.
 
 ---
 
-## How it Works
+## CLI Reference
 
-### Capture Pipeline
-
-Every user message goes through three stages:
-
-1. **Entity Extractor** — finds tools, emotions, decisions, problems, learnings, and keywords from the message
-2. **Type Classifier** — assigns one of eight types: `PROJECT`, `PREFERENCE`, `PROBLEM`, `DECISION`, `LEARNING`, `PERSONAL`, `EMOTION`, `CORRECTION`
-3. **Capture Engine** — builds a memory object with importance score and temperature, then saves to SQLite
-
-### Memory Temperature
-
-| Temperature | Importance Score | Meaning |
-|-------------|-----------------|---------|
-| PRIORITY_HOT | >= 0.7 | Critical memory, always injected |
-| HOT | >= 0.5 | Important memory, usually injected |
-| WARM | >= 0.2 | Background memory, injected when relevant |
-| COLD | < 0.2 | Low value memory, rarely injected |
-
-### Retrieval Pipeline
-
-When a new message arrives:
-
-1. **Keyword Extractor** pulls key terms from the message
-2. **Topic Detector** assigns complexity level L0 (greeting) to L5 (full context dump)
-3. **Budget Engine** calculates how many tokens to spend on memory
-4. **Retrieval Engine** scores all memories by keyword match and returns top results
-
-### Whisper Injector
-
-Builds a structured context string with three sections:
-
-```
-[CARETAKER CONTEXT]
-
-=== CORE IDENTITY (always present) ===
-Name/Handle: Dhruvil
-Active Project: ...
-Key Preferences: ...
-
-=== RECENT SESSIONS (last 3) ===
-[date] via claude: ...
-
-=== RELEVANT MEMORY ===
-[PRIORITY_HOT][PROJECT] ...
-
-[END CARETAKER CONTEXT]
-```
-
-### Memory Schema
-
-| Field | Type | Description |
-|-------|------|-------------|
-| id | TEXT | UUID primary key |
-| source_agent | TEXT | Which agent saved this memory |
-| keywords | TEXT | JSON array of keywords |
-| short | TEXT | Compressed summary (Phase 2) |
-| full | TEXT | Full original message |
-| type | TEXT | PROJECT / PREFERENCE / PROBLEM etc |
-| subtype | TEXT | Lowercase type label |
-| fact_type | TEXT | REPLACEABLE or ADDITIVE |
-| status | TEXT | ACTIVE / OUTDATED / ARCHIVED |
-| importance | REAL | Score 0.0 to 1.0 |
-| decay_score | REAL | Starts at 1.0, decays over time |
-| temperature | TEXT | PRIORITY_HOT / HOT / WARM / COLD |
-| retrieval_count | INTEGER | How many times retrieved |
-| created_at | TEXT | ISO timestamp |
-| updated_at | TEXT | ISO timestamp |
-| last_used | TEXT | ISO timestamp |
-
----
-
-## Verify Installation
-
-Run this to check memories are saving:
+After `uv pip install -e .`, the `caretaker` command is available in your terminal.
 
 ```bash
-uv run python -c "
-from storage.local_db import get_all_active_memories
-mems = get_all_active_memories()
-print(f'Total memories: {len(mems)}')
-for m in mems:
-    print(f'  type={m[\"type\"]} temp={m[\"temperature\"]} importance={m[\"importance\"]}')
-    print(f'  full={m[\"full\"][:80]}')
-"
+caretaker --help         # Show all commands
+caretaker list           # List all active memories (HOT first)
+caretaker list --type PROJECT
+caretaker list --outdated
+caretaker list --cold
+caretaker list --all
+caretaker list --agent chatgpt
+caretaker view <id>      # Show full memory detail
+caretaker search "python project"   # Semantic search
+caretaker edit <id>      # Open memory in editor
+caretaker delete <id>    # Soft-archive a memory
+caretaker restore <id>   # Restore archived memory
+caretaker stats          # Memory health dashboard
+caretaker export         # Export all memories to JSON
+caretaker export --file my_backup.json
+caretaker import backup.json
+caretaker sync           # Push to Supabase
+caretaker sync --pull    # Restore from Supabase
+caretaker sync --full    # Push all (not just last 24h)
+caretaker config         # Show all config values
+caretaker config get maintenance_time
+caretaker config set user_handle Dhruvil
+caretaker maintenance    # Run nightly maintenance now
+caretaker score <id> 0.8 # Manually set importance score
 ```
 
 ---
 
-## What Comes Next
+## Multi-Agent Support
 
-| Phase | What it adds |
-|-------|-------------|
-| Phase 2 | Smart compression, temperature engine, importance scorer, conflict checker, semantic search with ChromaDB |
-| Phase 3 | Multi-agent support, CLI tool, cloud backup with Supabase, encryption |
-| Phase 4 | Performance hardening, full test suite, production readiness |
+Caretaker works with any MCP-compatible agent. Pass `agent_id` when calling `caretaker_get_context`:
 
----
+| Agent | agent_id value | Format Style |
+|-------|---------------|--------------|
+| Claude Desktop | `claude` | Directive system prompt |
+| ChatGPT | `chatgpt` or `gpt-4o` | Context block header |
+| Gemini | `gemini` or `vertex` | XML `<context>` tags |
+| Cursor IDE | `cursor` | Code comment style |
+| GitHub Copilot | `copilot` | Block comment style |
+| Any other | any string | Neutral plain text |
 
-## Built With
-
-- [FastMCP](https://github.com/jlowin/fastmcp) — MCP server framework
-- [SQLite](https://www.sqlite.org/) — Local memory storage
-- [uv](https://github.com/astral-sh/uv) — Python package manager
-- [Anthropic Claude](https://www.anthropic.com/) — AI agent
+The context presented to each agent never reveals which other agent had previous conversations. Each agent receives neutral user history and responds with natural continuity.
 
 ---
 
-*Caretaker — Phase 1 complete. Memory cave built. Foundation strong.* 🪨
+## Memory System
+
+### Memory Types
+
+| Type | Fact Type | Example | Conflict Behaviour |
+|------|-----------|---------|-------------------|
+| PROJECT | REPLACEABLE | "Building FastAPI project" | New replaces old |
+| PREFERENCE | REPLACEABLE | "Prefer Python over JS" | New replaces old |
+| PROBLEM | ADDITIVE | "Getting 404 on /api/users" | Both kept |
+| DECISION | ADDITIVE | "Decided to use Supabase" | Both kept |
+| LEARNING | ADDITIVE | "Learning transformer models" | Both kept |
+| PERSONAL | REPLACEABLE | "My name is Dhruvil" | New replaces old |
+| EMOTION | ADDITIVE | "Excited about the progress" | Both kept |
+| CORRECTION | REPLACEABLE | "Actually meant PostgreSQL" | New replaces old |
+
+### Temperature Tiers
+
+| Temperature | Score Condition | Retrieval |
+|-------------|----------------|-----------|
+| PRIORITY_HOT | importance > 0.7 | Always fetched first |
+| HOT | score > 0.5 | Fetched in standard retrieval |
+| WARM | 0.2 ≤ score ≤ 0.5 | Fetched only if semantically relevant |
+| COLD | score < 0.2 | Never fetched — skipped in search |
+| ARCHIVED | Manual or score < 0.2 | Never fetched — Supabase cold store |
+
+### Token Budget (Smart Auto)
+
+| Level | Signal | Budget | Memory Form |
+|-------|--------|--------|-------------|
+| L0 | "hi", "hello", "hey" | 80 tokens | Core identity only |
+| L1 | "quick", "list", "simple" | 200 tokens | Core only |
+| L2 | "explain", "what is", "help" | 350 tokens | Core + recent SHORT |
+| L3 | "code", "debug", "implement" | 500 tokens | Core + relevant SHORT |
+| L4 | "architecture", "design", "full flow" | 650 tokens | Core + relevant FULL |
+| L5 | "remember everything about" | 800 tokens | All relevant FULL |
+
+---
+
+## Nightly Maintenance
+
+Runs automatically every night at `maintenance_time` (default 02:00 UTC).
+
+Trigger manually anytime:
+
+```bash
+caretaker maintenance
+```
+
+Pipeline runs 8 tasks in order:
+
+1. **Batch Decay** — HOT → WARM after 7 days idle, WARM → COLD after 14 days
+2. **ChromaDB Sync** — Remove OUTDATED and COLD entries from vector index
+3. **Stale Cleanup** — Archive memories with score < 0.2
+4. **Deduplication** — Merge near-identical memories (>70% keyword overlap)
+5. **Importance Boost** — +0.02 per retrieval above threshold (max +0.15)
+6. **Cloud Sync** — Encrypt + push last 24h updates to Supabase
+7. **ChromaDB Reindex** — Re-add any ACTIVE memories missing from vector index
+8. **Stats Report** — Write health summary to `logs/maintenance.log`
+
+---
+
+## Storage Architecture
+
+```
+LOCAL (primary):
+  SQLite          ← all memory records, source of truth
+  ChromaDB        ← SHORT embeddings for semantic search (HOT + WARM only)
+  config.json     ← user settings
+  logs/           ← maintenance reports
+
+CLOUD (backup):
+  Supabase PostgreSQL  ← encrypted full memory dump, nightly sync
+```
+
+All data that leaves the local machine is encrypted with AES-256-GCM before upload. Supabase never stores plaintext.
+
+---
+
+## Project Structure
+
+```
+caretaker/
+├── mcp_server/
+│   ├── server.py           # FastMCP entry point
+│   ├── tools.py            # caretaker_get_context + caretaker_save_message
+│   ├── injector.py         # Builds whisper context string
+│   └── agent_adapter.py    # Formats whisper per agent type (Phase 3)
+├── capture/
+│   ├── capture_engine.py   # Main capture pipeline
+│   ├── entity_extractor.py # Pulls facts, tools, names from message
+│   ├── type_classifier.py  # Assigns TYPE + SUBTYPE + FACT_TYPE
+│   └── long_message_handler.py  # Splits/compresses messages >400 tokens
+├── retrieval/
+│   ├── retrieval_engine.py # Main retrieval controller
+│   ├── topic_detector.py   # Message complexity L0–L5
+│   ├── keyword_extractor.py# Key term extraction
+│   ├── budget_engine.py    # Smart token budget calculator
+│   ├── memory_selector.py  # Picks SHORT or FULL per memory
+│   └── semantic_searcher.py# ChromaDB semantic search
+├── memory/
+│   ├── conflict_checker.py # REPLACEABLE vs ADDITIVE conflict resolution
+│   ├── temperature_engine.py # HOT/WARM/COLD tier assignment
+│   ├── decay_engine.py     # Score decay over time
+│   └── importance_scorer.py# Initial importance score on capture
+├── compression/
+│   ├── compressor.py       # Haiku API — generates SHORT + KEYWORDS
+│   ├── templates.py        # Type-specific compression prompts
+│   └── keyword_generator.py# Extract keywords from SHORT
+├── storage/
+│   ├── local_db.py         # SQLite CRUD — source of truth
+│   ├── vector_db.py        # ChromaDB handler
+│   ├── cloud_sync.py       # Supabase upload + restore (Phase 3)
+│   ├── encrypt.py          # AES-256-GCM encryption (Phase 3)
+│   └── migrations/
+│       └── v001_initial.sql
+├── scheduler/
+│   ├── scheduler.py        # APScheduler nightly job (Phase 3)
+│   ├── nightly_maintenance.py  # 8-task maintenance pipeline (Phase 3)
+│   ├── maintenance.py      # Phase 2 async maintenance runner
+│   └── compression_queue.py# Async background compression
+├── cli/                    # Phase 3 — all CLI commands
+│   ├── main.py             # Click entry point
+│   ├── formatters.py       # ANSI terminal formatting
+│   └── commands/
+│       ├── list_cmd.py
+│       ├── view_cmd.py
+│       ├── search_cmd.py
+│       ├── edit_cmd.py
+│       ├── delete_cmd.py
+│       ├── restore_cmd.py
+│       ├── stats_cmd.py
+│       ├── export_cmd.py
+│       ├── import_cmd.py
+│       ├── sync_cmd.py
+│       └── config_cmd.py
+├── tests/
+│   ├── phase1/             # 10 tests — core pipeline
+│   ├── phase2/             # 15 tests — intelligence layer
+│   ├── phase3/             # 18 tests — multi-agent + CLI + cloud
+│   └── fixtures/           # Shared test data
+├── config.json             # System configuration
+├── pyproject.toml          # Dependencies + CLI entry point
+├── setup.py                # Editable install shim
+└── README.md
+```
+
+---
+
+## Running Tests
+
+```bash
+# All phases
+pytest tests/ -v
+
+# Specific phase
+pytest tests/phase1/ -v
+pytest tests/phase2/ -v
+pytest tests/phase3/ -v
+
+# Cloud tests require Supabase credentials in config.json
+# They auto-skip if not configured — safe to run anywhere
+```
+
+Expected: 43+ tests passing. Phase 3 cloud tests (P3-T13, P3-T14) skip when Supabase not configured.
+
+---
+
+## Troubleshooting
+
+**MCP not showing in Claude Desktop**  
+Check `claude_desktop_config.json` paths. All backslashes must be doubled (`\\`). Restart Claude Desktop after any config change.
+
+**ChromaDB index empty after restart**  
+Run `caretaker maintenance` to trigger a reindex. Or send a message — Phase 2 compression queue will re-embed on next server start.
+
+**Compression not working**  
+Check `anthropic_api_key` in `config.json`. Haiku API key must be valid. The system falls back to storing raw text if Haiku fails — no crash.
+
+**Cloud sync failing**  
+Run `caretaker sync` and read the error. Most common causes: empty `supabase_url`, wrong `supabase_key`, or `encrypt_key` not set. Cloud sync is optional — system runs fully offline without it.
+
+**`caretaker` command not found**  
+Run `uv pip install -e .` from the project root. Then open a new terminal.
+
+**Tests failing with import errors**  
+Make sure you are running from the project root: `cd packages/caretaker` before `pytest tests/`.
+
+---
+
+## Tech Stack
+
+| Technology | Purpose | Phase |
+|-----------|---------|-------|
+| Python 3.12+ | Core language | 1 |
+| FastMCP | MCP server framework | 1 |
+| SQLite | Local memory database | 1 |
+| spaCy | NLP entity extraction | 1 |
+| sentence-transformers | Local embeddings | 2 |
+| ChromaDB | Vector search index | 2 |
+| Anthropic Haiku | Memory compression | 2 |
+| APScheduler | Nightly maintenance | 3 |
+| Click | CLI framework | 3 |
+| cryptography | AES-256-GCM encryption | 3 |
+| Supabase | Cloud backup | 3 |
+| pytest | Test framework | All |
+| uv | Package manager | All |
+
+---
+
+*Phase 3 complete. Memory cave now has fire, tools, and tribe support.* 🦣🔨🔥
