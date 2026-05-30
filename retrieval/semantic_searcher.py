@@ -87,11 +87,21 @@ class SemanticSearcher:
             return []
 
         # Step 3: Fetch full records from SQLite
+        # ChromaDB stores IDs as memory UUID — same as SQLite "id" field
         memory_ids = [h["memory_id"] for h in vector_hits]
         full_records = self.local_db.get_by_ids(memory_ids)
 
+        if not full_records:
+            logger.warning("[SemanticSearcher] SQLite returned 0 records for IDs: %s", memory_ids[:3])
+            return []
+
         # Build lookup: memory_id → full record
-        record_map = {r["memory_id"]: r for r in full_records}
+        # SQLite returns "id" field — NOT "memory_id"
+        record_map = {}
+        for r in full_records:
+            key = r.get("id") or r.get("memory_id")
+            if key:
+                record_map[key] = r
 
         # Step 4: Rank
         ranked = []
@@ -103,8 +113,24 @@ class SemanticSearcher:
 
             semantic_sim = _distance_to_similarity(hit.get("distance", 1.0))
             temp_weight = TEMPERATURE_WEIGHTS.get(hit.get("temperature", "WARM"), 1.0)
-            importance = float(record.get("importance_score", 0.5))
-            last_accessed = record.get("last_accessed_at", time.time())
+
+            # BUG FIX: SQLite schema uses "importance" not "importance_score"
+            importance = float(record.get("importance") or record.get("importance_score") or 0.5)
+
+            # BUG FIX: last_accessed_at is a datetime string in SQLite — convert to float
+            raw_time = record.get("last_used") or record.get("last_accessed_at")
+            if raw_time and isinstance(raw_time, str):
+                try:
+                    import datetime
+                    dt = datetime.datetime.fromisoformat(raw_time)
+                    last_accessed = dt.timestamp()
+                except Exception:
+                    last_accessed = time.time()
+            elif isinstance(raw_time, (int, float)):
+                last_accessed = float(raw_time)
+            else:
+                last_accessed = time.time()
+
             recency = _recency_factor(last_accessed)
 
             relevance_score = semantic_sim * temp_weight * importance * recency

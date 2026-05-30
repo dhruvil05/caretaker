@@ -13,3 +13,9 @@ wheels/
 # Owner-specific Database files
 *.db
 *.sqlite3
+
+# Backups and logs
+caretaker_export_20260525_111037.json
+
+*.log
+*.bin

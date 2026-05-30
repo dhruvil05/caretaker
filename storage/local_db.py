@@ -201,3 +201,195 @@ def get_all_for_decay() -> list:
     with get_connection() as conn:
         rows = conn.execute(sql).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── Phase 3 additions ──────────────────────────────────────────────────────────
+
+def get_all_memories(status: str = None) -> list:
+    """
+    Phase 3: Fetch ALL memories with optional status filter.
+    Used by CLI list, export, and cloud_sync push_all.
+    If status is None — returns every memory regardless of status.
+    """
+    if status:
+        sql = "SELECT * FROM memories WHERE status = ? ORDER BY temperature DESC, importance DESC, created_at DESC"
+        params = (status,)
+    else:
+        sql = "SELECT * FROM memories ORDER BY status ASC, temperature DESC, importance DESC, created_at DESC"
+        params = ()
+
+    with get_connection() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_memory_fields(memory_id: str, fields: dict) -> bool:
+    """
+    Phase 3: Update arbitrary fields on a memory record.
+    Used by CLI edit command and cloud restore.
+
+    fields: dict of column_name → new_value
+    Always sets updated_at to now.
+    """
+    if not fields:
+        return False
+
+    now = datetime.now(timezone.utc).isoformat()
+    fields["updated_at"] = now
+
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values     = list(fields.values()) + [memory_id]
+
+    sql = f"UPDATE memories SET {set_clause} WHERE id = ?"
+    try:
+        with get_connection() as conn:
+            conn.execute(sql, values)
+        return True
+    except Exception as e:
+        print(f"[DB] update_memory_fields error: {e}")
+        return False
+
+
+def archive_memory(memory_id: str) -> bool:
+    """
+    Phase 3: Soft-delete a memory by setting status = ARCHIVED.
+    Never hard-deletes. Used by CLI delete command.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    sql = "UPDATE memories SET status = 'ARCHIVED', updated_at = ? WHERE id = ?"
+    try:
+        with get_connection() as conn:
+            conn.execute(sql, (now, memory_id))
+        return True
+    except Exception as e:
+        print(f"[DB] archive_memory error: {e}")
+        return False
+
+
+def restore_memory(memory_id: str) -> bool:
+    """
+    Phase 3: Restore an ARCHIVED or OUTDATED memory back to ACTIVE.
+    Clears superseded_by link and resets temperature to WARM.
+    Used by CLI restore command.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    sql = """
+        UPDATE memories
+        SET status = 'ACTIVE', superseded_by = NULL,
+            temperature = 'WARM', updated_at = ?
+        WHERE id = ?
+    """
+    try:
+        with get_connection() as conn:
+            conn.execute(sql, (now, memory_id))
+        return True
+    except Exception as e:
+        print(f"[DB] restore_memory error: {e}")
+        return False
+
+
+def get_stats() -> dict:
+    """
+    Phase 3: Return memory health statistics.
+    Used by CLI stats command and nightly maintenance report.
+
+    Returns:
+        {
+            "total": int,
+            "by_status": { "ACTIVE": n, "OUTDATED": n, "ARCHIVED": n, ... },
+            "by_type":   { "PROJECT": n, ... },
+            "by_temperature": { "HOT": n, "WARM": n, ... },
+            "by_agent":  { "claude": n, "chatgpt": n, ... },
+        }
+    """
+    with get_connection() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+
+        status_rows = conn.execute(
+            "SELECT status, COUNT(*) as cnt FROM memories GROUP BY status"
+        ).fetchall()
+
+        type_rows = conn.execute(
+            "SELECT type, COUNT(*) as cnt FROM memories WHERE status='ACTIVE' GROUP BY type"
+        ).fetchall()
+
+        temp_rows = conn.execute(
+            "SELECT temperature, COUNT(*) as cnt FROM memories WHERE status='ACTIVE' GROUP BY temperature"
+        ).fetchall()
+
+        agent_rows = conn.execute(
+            "SELECT source_agent, COUNT(*) as cnt FROM memories GROUP BY source_agent"
+        ).fetchall()
+
+    return {
+        "total"          : total,
+        "by_status"      : {r["status"]: r["cnt"] for r in status_rows},
+        "by_type"        : {r["type"]: r["cnt"] for r in type_rows},
+        "by_temperature" : {r["temperature"]: r["cnt"] for r in temp_rows},
+        "by_agent"       : {r["source_agent"]: r["cnt"] for r in agent_rows},
+    }
+
+
+def search_memories_by_keyword(query: str, limit: int = 10) -> list:
+    """
+    Phase 3: Basic keyword search fallback for CLI search command.
+    Used when ChromaDB is unavailable or for quick CLI lookups.
+    Searches in full + short + keywords fields (LIKE).
+    """
+    pattern = f"%{query}%"
+    sql = """
+        SELECT * FROM memories
+        WHERE status = 'ACTIVE'
+          AND (full LIKE ? OR short LIKE ? OR keywords LIKE ?)
+        ORDER BY importance DESC, created_at DESC
+        LIMIT ?
+    """
+    with get_connection() as conn:
+        rows = conn.execute(sql, (pattern, pattern, pattern, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_memory(memory: dict) -> bool:
+    """
+    Phase 3: Insert or update a memory record (used by cloud pull restore).
+    If id already exists — updates all fields.
+    If id not found — inserts as new.
+    """
+    existing = get_memory_by_id(memory["id"])
+    if existing:
+        fields = {k: v for k, v in memory.items() if k != "id"}
+        return update_memory_fields(memory["id"], fields)
+    else:
+        return save_memory(memory)
+
+
+def get_memories_by_agent(agent_id: str) -> list:
+    """
+    Phase 3: Fetch all ACTIVE memories captured by a specific agent.
+    Used by multi-agent stats and CLI list --agent filter.
+    """
+    sql = """
+        SELECT * FROM memories
+        WHERE status = 'ACTIVE' AND source_agent = ?
+        ORDER BY importance DESC, created_at DESC
+    """
+    with get_connection() as conn:
+        rows = conn.execute(sql, (agent_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_duplicate_candidates() -> list:
+    """
+    Phase 3: Fetch ACTIVE memory pairs that share the same type and similar keywords.
+    Used by nightly deduplication task in nightly_maintenance.py.
+    Returns list of dicts with id, type, keywords, short for comparison.
+    """
+    sql = """
+        SELECT id, type, keywords, short, full
+        FROM memories
+        WHERE status = 'ACTIVE' AND keywords IS NOT NULL
+        ORDER BY type, created_at DESC
+    """
+    with get_connection() as conn:
+        rows = conn.execute(sql).fetchall()
+    return [dict(r) for r in rows]

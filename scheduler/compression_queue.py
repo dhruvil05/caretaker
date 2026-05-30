@@ -131,11 +131,21 @@ class CompressionQueue:
                 keywords=keywords,
             )
 
-            # Update ChromaDB index with SHORT embedding
+            # BUG FIX: Fetch full SQLite record so ChromaDB metadata stays in sync
+            # Previously: upsert used default temperature="HOT" always — causing filter mismatches
+            record = self.local_db.get_memory_by_id(job.memory_id)
+            temperature      = (record or {}).get("temperature", "HOT")
+            memory_type_real = (record or {}).get("type", job.memory_type)
+            importance_score = float((record or {}).get("importance") or 0.5)
+
+            # Update ChromaDB index with SHORT embedding + correct metadata
             self.vector_db.upsert(
                 memory_id=job.memory_id,
                 short=short,
                 keywords=keywords,
+                temperature=temperature,
+                memory_type=memory_type_real,
+                importance_score=importance_score,
             )
 
             logger.info(f"[CompressionQueue] Compressed memory_id={job.memory_id} — short={short[:60]!r}")
