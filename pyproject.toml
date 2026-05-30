@@ -1,15 +1,63 @@
 [project]
 name = "caretaker"
-version = "0.1.0"
-description = "Universal memory layer for AI agents"
+version = "0.3.2"
+description = "Universal agent memory layer — local-first, agent-agnostic, cloud-backed"
 requires-python = ">=3.12"
+
 dependencies = [
+    # ── Phase 1 core ──────────────────────────────────────────
     "anthropic>=0.97.0",
     "fastmcp>=3.2.4",
     "pydantic>=2.13.3",
-    "pytest>=9.0.3",
+
+    # ── Phase 2 intelligence ──────────────────────────────────
+    "chromadb>=0.6.0",
+    "sentence-transformers>=3.0.0",
+    "spacy>=3.7.0",
+
+    # ── Phase 3 CLI + scheduling + cloud + encryption ─────────
+    "click>=8.1.0",
+    "apscheduler>=3.10.0",
+    "cryptography>=42.0.0",
+    "supabase>=2.0.0",
 ]
 
+[project.optional-dependencies]
+# Run: uv add caretaker[dev]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+]
+
+# ── CLI entry point ────────────────────────────────────────────────────────────
+# After: uv pip install -e .
+# Run:   caretaker --help
+[project.scripts]
+caretaker = "cli.main:main"
+
+# ── Build system ───────────────────────────────────────────────────────────────
+[build-system]
+requires      = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+# ── Pytest ─────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
-pythonpath = ["."]
-testpaths = ["tests"]
+pythonpath   = ["."]
+testpaths    = ["tests"]
+asyncio_mode = "auto"
+
+# ── Ruff (optional linting) ────────────────────────────────────────────────────
+[tool.ruff]
+line-length    = 100
+target-version = "py312"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.1.0",
+]

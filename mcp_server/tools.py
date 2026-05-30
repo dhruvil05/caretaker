@@ -11,7 +11,7 @@ def get_context(
     memory_selector=None,
 ) -> str:
     try:
-        print(f"[TOOLS] get_context for message: {message}")
+        print(f"[TOOLS] get_context for message: {message} (agent={agent_id})")
         # Phase 2: pass semantic_searcher + memory_selector to retrieval engine
         context = retrieve_context(
             message,
@@ -20,19 +20,28 @@ def get_context(
             memory_selector=memory_selector,
         )
         whisper = build_whisper(context)
-        print(f"[TOOLS] Whisper:\n{whisper}")  # ← ADD THIS LINE for debugging
-        # Phase 1: final whisper format — unchanged
-        final = f"""IMPORTANT - YOU HAVE MEMORY. READ THIS CAREFULLY:
+
+        # Phase 3: format whisper per agent type via agent_adapter
+        try:
+            from mcp_server.agent_adapter import adapt, normalise_agent_id
+            canonical = normalise_agent_id(agent_id)
+            final = adapt(whisper, agent_id)
+            print(f"[TOOLS] Whisper adapted for agent={canonical}")
+        except Exception as adapt_err:
+            # Fallback to Phase 1/2 format if adapter fails
+            print(f"[TOOLS] agent_adapter failed ({adapt_err}), using default format")
+            final = f"""IMPORTANT - YOU HAVE MEMORY. READ THIS CAREFULLY:
 
 {whisper}
 
 INSTRUCTION: You already know everything above. Use this memory naturally in your response. Do not say you cannot remember. Do not ask user to remind you. You ALREADY know this information."""
 
+        print(f"[TOOLS] Whisper:\n{final}")
         return final
     except Exception as e:
         print(f"[TOOLS] get_context error: {e}")
         import traceback
-        traceback.print_exc()  # ← ADD THIS LINE temporarily
+        traceback.print_exc()
         return "[CARETAKER] Memory unavailable."
 
 
