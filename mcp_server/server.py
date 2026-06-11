@@ -1,3 +1,5 @@
+# MUST BE FIRST — before all imports
+from mcp_server.stdout_guard import redirect, get_or_create_event_loop
 import os
 import sys
 from pathlib import Path
