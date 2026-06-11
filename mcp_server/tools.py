@@ -1,7 +1,10 @@
 from retrieval.retrieval_engine import retrieve_context
 from capture.capture_engine import run_capture
 from mcp_server.injector import build_whisper
+import sys
+import io
 
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 def get_context(
     message: str,
