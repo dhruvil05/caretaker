@@ -49,6 +49,7 @@ packages = ["."]
 pythonpath   = ["."]
 testpaths    = ["tests"]
 asyncio_mode = "auto"
+addopts = "-s -v"
 
 # ── Ruff (optional linting) ────────────────────────────────────────────────────
 [tool.ruff]
