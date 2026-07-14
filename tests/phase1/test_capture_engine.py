@@ -4,8 +4,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
 import json
-from capture.capture_engine import run_capture, get_temperature, count_tokens_approx
-from caretaker.tests.fixtures.fixtures import SAMPLE_MESSAGES, VALID_TEMPERATURES, VALID_TYPES, VALID_FACT_TYPES
+from src.caretaker.capture.capture_engine import run_capture, get_temperature, count_tokens_approx
+from tests.fixtures.fixtures import SAMPLE_MESSAGES, VALID_TEMPERATURES, VALID_TYPES, VALID_FACT_TYPES
 
 
 class TestCaptureEngine:

@@ -8,7 +8,7 @@ import os
 
 TEST_DB = Path(__file__).parent.parent.parent / "caretaker_test.db"
 
-import storage.local_db as db_module
+import src.caretaker.storage.local_db as db_module
 db_module.DB_PATH = TEST_DB
 
 @pytest.fixture(autouse=True, scope="function")

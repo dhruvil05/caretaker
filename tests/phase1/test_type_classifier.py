@@ -3,8 +3,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
-from capture.type_classifier import classify_type
-from caretaker.tests.fixtures.fixtures import (
+from src.caretaker.capture.type_classifier import classify_type
+from tests.fixtures.fixtures import (
     SAMPLE_MESSAGES,
     EXPECTED_TYPES,
     EXPECTED_FACT_TYPES,

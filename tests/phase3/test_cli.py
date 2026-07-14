@@ -28,14 +28,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
 from click.testing import CliRunner
-from cli.main import cli
+from src.caretaker.cli.main import cli
 
 
 # ── Isolated DB per test ───────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)
 def isolated_db(tmp_path, monkeypatch):
-    import storage.local_db as db_module
+    import src.caretaker.storage.local_db as db_module
     test_db = tmp_path / "caretaker_test.db"
     monkeypatch.setattr(db_module, "DB_PATH", str(test_db))
     db_module.run_migrations()
@@ -69,7 +69,7 @@ def _make_memory(**overrides) -> dict:
 
 
 def _seed(**overrides) -> dict:
-    from storage.local_db import save_memory
+    from src.caretaker.storage.local_db import save_memory
     mem = _make_memory(**overrides)
     save_memory(mem)
     return mem
@@ -210,7 +210,7 @@ class TestP3T05_CLIEdit:
         result = CliRunner().invoke(cli, ["edit", mem["id"], "--field", "short"])
         assert result.exit_code == 0
 
-        from storage.local_db import get_memory_by_id
+        from src.caretaker.storage.local_db import get_memory_by_id
         updated = get_memory_by_id(mem["id"])
         assert updated["short"] == new_short
 
@@ -233,7 +233,7 @@ class TestP3T06_CLIDelete:
         mem = _seed()
         CliRunner().invoke(cli, ["delete", mem["id"], "--force"])
 
-        from storage.local_db import get_memory_by_id
+        from src.caretaker.storage.local_db import get_memory_by_id
         row = get_memory_by_id(mem["id"])
         assert row is not None, "Memory was hard-deleted — should only be ARCHIVED"
         assert row["status"] == "ARCHIVED"
@@ -242,7 +242,7 @@ class TestP3T06_CLIDelete:
         mem = _seed()
         CliRunner().invoke(cli, ["delete", mem["id"]], input="n\n")
 
-        from storage.local_db import get_memory_by_id
+        from src.caretaker.storage.local_db import get_memory_by_id
         row = get_memory_by_id(mem["id"])
         assert row["status"] == "ACTIVE"
 
@@ -266,7 +266,7 @@ class TestP3T07_CLIRestore:
         mem = _seed(status="ARCHIVED")
         CliRunner().invoke(cli, ["restore", mem["id"]])
 
-        from storage.local_db import get_memory_by_id
+        from src.caretaker.storage.local_db import get_memory_by_id
         row = get_memory_by_id(mem["id"])
         assert row["status"] == "ACTIVE"
 
@@ -274,7 +274,7 @@ class TestP3T07_CLIRestore:
         mem = _seed(status="OUTDATED")
         CliRunner().invoke(cli, ["restore", mem["id"]])
 
-        from storage.local_db import get_memory_by_id
+        from src.caretaker.storage.local_db import get_memory_by_id
         row = get_memory_by_id(mem["id"])
         assert row["status"] == "ACTIVE"
 
@@ -282,7 +282,7 @@ class TestP3T07_CLIRestore:
         mem = _seed(status="OUTDATED", superseded_by=str(uuid.uuid4()))
         CliRunner().invoke(cli, ["restore", mem["id"]])
 
-        from storage.local_db import get_memory_by_id
+        from src.caretaker.storage.local_db import get_memory_by_id
         row = get_memory_by_id(mem["id"])
         assert row["superseded_by"] is None
 
@@ -372,7 +372,7 @@ class TestP3T09_CLIExport:
 class TestP3T10_CLIImport:
 
     def test_import_restores_all_memories(self, tmp_path):
-        import storage.local_db as db_module
+        import src.caretaker.storage.local_db as db_module
 
         m1 = _seed()
         m2 = _seed(type="PREFERENCE", short="Prefers Python.",
@@ -392,7 +392,7 @@ class TestP3T10_CLIImport:
         assert result.exit_code == 0
         assert result.exception is None
 
-        from storage.local_db import get_memory_by_id
+        from src.caretaker.storage.local_db import get_memory_by_id
         for mem in [m1, m2, m3]:
             row = get_memory_by_id(mem["id"])
             assert row is not None, f"Memory {mem['id'][:8]} not restored"

@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import pytest
 import uuid
 from datetime import datetime, timezone
-from storage.local_db import (
+from src.caretaker.storage.local_db import (
     run_migrations,
     save_memory,
     get_memories_by_type,

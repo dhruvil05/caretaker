@@ -34,7 +34,7 @@ dev = [
 # After: uv pip install -e .
 # Run:   caretaker --help
 [project.scripts]
-caretaker = "cli.main:main"
+caretaker = "src.caretaker.cli.main:main"
 
 # ── Build system ───────────────────────────────────────────────────────────────
 [build-system]

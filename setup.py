@@ -19,6 +19,16 @@ After install, test with:
     caretaker list
 """
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
-setup()
+setup(
+    name="caretaker",
+    version="0.3.2",
+    package_dir={"": "src"},
+    packages=find_packages(where="src"),
+    entry_points={
+        "console_scripts": [
+            "caretaker=caretaker.cli.__main__:main",
+        ],
+    },
+)
