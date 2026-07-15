@@ -149,8 +149,8 @@ def test_p2_t04_conflict_replaceable():
     check_conflict call to control existing_memories format exactly.
     """
     import datetime
-    from src.caretaker.storage import local_db as _local_db
-    from src.caretaker.storage.local_db import save_memory, get_memories_by_type
+    from caretaker.storage import local_db as _local_db
+    from caretaker.storage.local_db import save_memory, get_memories_by_type
     from memory.conflict_checker import check_conflict, resolve_conflict
 
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -264,7 +264,7 @@ def test_p2_t04_conflict_replaceable():
 def test_p2_t05_conflict_additive():
     """LEARNING conflict: 'Python' + 'Rust' — both must stay ACTIVE."""
     from capture.capture_engine import run_capture
-    from src.caretaker.storage.local_db import get_memories_by_type
+    from caretaker.storage.local_db import get_memories_by_type
 
     run_capture("I know Python very well and use it daily.", agent_id="test_additive")
     time.sleep(1)
@@ -538,7 +538,7 @@ def test_p2_t13_long_message_compress():
 def test_p2_t14_outdated_not_injected():
     """OUTDATED memory must not appear in whisper context output."""
     import datetime
-    from src.caretaker.storage import local_db
+    from caretaker.storage import local_db
     from retrieval.retrieval_engine import retrieve_context
     from mcp_server.injector import build_whisper
 

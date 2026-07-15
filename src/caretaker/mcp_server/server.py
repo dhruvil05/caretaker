@@ -1,5 +1,5 @@
 # MUST BE FIRST — before all imports
-from src.caretaker.mcp_server.stdout_guard import redirect, get_or_create_event_loop
+from caretaker.mcp_server.stdout_guard import redirect, get_or_create_event_loop
 import os
 import sys
 from pathlib import Path
@@ -13,16 +13,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import json
 import asyncio
 from fastmcp import FastMCP
-from src.caretaker.storage.local_db import run_migrations
-from src.caretaker.mcp_server.tools import get_context, save_message
+from caretaker.storage.local_db import run_migrations
+from caretaker.mcp_server.tools import get_context, save_message
 
 # ── Phase 2 imports ────────────────────────────────────────────────────────────
-from src.caretaker.storage.vector_db import VectorDB
-from src.caretaker.compression.compressor import Compressor
-from src.caretaker.scheduler.compression_queue import CompressionQueue
-from src.caretaker.scheduler.maintenance import MaintenanceRunner
-from src.caretaker.retrieval.semantic_searcher import SemanticSearcher
-import src.caretaker.retrieval.memory_selector as memory_selector
+from caretaker.storage.vector_db import VectorDB
+from caretaker.compression.compressor import Compressor
+from caretaker.scheduler.compression_queue import CompressionQueue
+from caretaker.scheduler.maintenance import MaintenanceRunner
+from caretaker.retrieval.semantic_searcher import SemanticSearcher
+import caretaker.retrieval.memory_selector as memory_selector
 
 # ── Load config ────────────────────────────────────────────────────────────────
 _config_path = Path(__file__).parent.parent.parent.parent / "config.json"
@@ -72,7 +72,7 @@ def caretaker_get_context(message: str, agent_id: str = "claude") -> str:
     """
     # Phase 3: log agent identity on every call
     try:
-        from src.caretaker.mcp_server.agent_adapter import get_agent_info
+        from caretaker.mcp_server.agent_adapter import get_agent_info
         info = get_agent_info(agent_id)
         print(f"[CARETAKER] Agent: {info['canonical']} (raw={info['raw_id']}, style={info['format_style']})")
     except Exception:
@@ -95,13 +95,14 @@ def caretaker_save_message(message: str, agent_id: str = "claude") -> str:
     Captures facts, preferences, projects from the message.
     """
     # Phase 2: pass compressor + compression_queue + local_db reference
-    from src.caretaker.storage import local_db as _local_db
+    from caretaker.storage import local_db as _local_db
     return save_message(
         message,
         agent_id,
         compressor=_compressor,
         compression_queue=_compression_queue,
         local_db=_local_db,
+        vector_db=_vector_db,
     )
 
 
@@ -140,7 +141,7 @@ async def _startup():
 
     # Phase 2: initialise and start CompressionQueue
     if _compressor and _vector_db:
-        from src.caretaker.storage import local_db as _local_db
+        from caretaker.storage import local_db as _local_db
         print("[CARETAKER] Starting compression queue...")
         try:
             _compression_queue = CompressionQueue(
@@ -156,7 +157,7 @@ async def _startup():
 
     # Phase 2: initialise SemanticSearcher
     if _vector_db:
-        from src.caretaker.storage import local_db as _local_db
+        from caretaker.storage import local_db as _local_db
         _semantic_searcher = SemanticSearcher(
             vector_db=_vector_db,
             local_db=_local_db,
@@ -165,7 +166,7 @@ async def _startup():
 
     # Phase 2: initialise and start MaintenanceRunner
     if _vector_db:
-        from src.caretaker.storage import local_db as _local_db
+        from caretaker.storage import local_db as _local_db
         print("[CARETAKER] Starting maintenance scheduler...")
         try:
             _maintenance_runner = MaintenanceRunner(
@@ -181,8 +182,8 @@ async def _startup():
     # Phase 3: initialise CaretakerScheduler (APScheduler-based nightly job)
     global _caretaker_scheduler
     try:
-        from src.caretaker.scheduler.scheduler import CaretakerScheduler
-        from src.caretaker.storage import local_db as _local_db
+        from caretaker.scheduler.scheduler import CaretakerScheduler
+        from caretaker.storage import local_db as _local_db
         _caretaker_scheduler = CaretakerScheduler(
             config=_config,
             local_db=_local_db,
@@ -201,7 +202,7 @@ async def _startup():
 
     # Phase 3: log supported agents on startup
     try:
-        from src.caretaker.mcp_server.agent_adapter import get_supported_agents
+        from caretaker.mcp_server.agent_adapter import get_supported_agents
         agents = get_supported_agents()
         print(f"[CARETAKER] Multi-agent support active. Supported agents: {len(agents)} aliases")
     except Exception:

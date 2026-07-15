@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
-import src.caretaker.storage.local_db as db_module
+import caretaker.storage.local_db as db_module
 
 
 # ── Isolated DB ────────────────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ class TestP3T15_EncryptionCheck:
         if not config.get("encrypt_key"):
             config["encrypt_key"] = "test-passphrase-for-unit-tests"
 
-        from src.caretaker.storage.encrypt import Encryptor, encrypt_memory_dict
+        from caretaker.storage.encrypt import Encryptor, encrypt_memory_dict
         enc = Encryptor(config)
 
         mem = _seed()
@@ -103,7 +103,7 @@ class TestP3T15_EncryptionCheck:
         if not config.get("encrypt_key"):
             config["encrypt_key"] = "test-passphrase-for-unit-tests"
 
-        from src.caretaker.storage.encrypt import Encryptor, encrypt_memory_dict, decrypt_memory_dict
+        from caretaker.storage.encrypt import Encryptor, encrypt_memory_dict, decrypt_memory_dict
         enc = Encryptor(config)
 
         mem = _seed()
@@ -118,7 +118,7 @@ class TestP3T15_EncryptionCheck:
         config_a = dict(config, encrypt_key="correct-passphrase-abc")
         config_b = dict(config, encrypt_key="wrong-passphrase-xyz")
 
-        from src.caretaker.storage.encrypt import Encryptor, encrypt_memory_dict, decrypt_memory_dict
+        from caretaker.storage.encrypt import Encryptor, encrypt_memory_dict, decrypt_memory_dict
 
         enc_a = Encryptor(config_a)
         enc_b = Encryptor(config_b)
@@ -133,7 +133,7 @@ class TestP3T15_EncryptionCheck:
         if not config.get("encrypt_key"):
             config["encrypt_key"] = "test-passphrase-for-unit-tests"
 
-        from src.caretaker.storage.encrypt import Encryptor, encrypt_memory_dict
+        from caretaker.storage.encrypt import Encryptor, encrypt_memory_dict
         enc = Encryptor(config)
 
         mem = _seed()
@@ -146,7 +146,7 @@ class TestP3T15_EncryptionCheck:
             )
 
     def test_encryptor_raises_without_key(self):
-        from src.caretaker.storage.encrypt import Encryptor
+        from caretaker.storage.encrypt import Encryptor
         with pytest.raises((ValueError, Exception)):
             Encryptor({"encrypt_key": ""})
 
@@ -154,7 +154,7 @@ class TestP3T15_EncryptionCheck:
         if not config.get("encrypt_key"):
             config["encrypt_key"] = "test-passphrase-for-unit-tests"
 
-        from src.caretaker.storage.encrypt import Encryptor, encrypt_memory_dict, decrypt_memory_dict
+        from caretaker.storage.encrypt import Encryptor, encrypt_memory_dict, decrypt_memory_dict
         enc = Encryptor(config)
 
         mem = _seed()
@@ -187,7 +187,7 @@ class TestP3T13_CloudUpload:
         _seed(type="PREFERENCE", short="Prefers Python.",
               full="I prefer Python.", keywords='["python"]')
 
-        from src.caretaker.storage.cloud_sync import CloudSync
+        from caretaker.storage.cloud_sync import CloudSync
         cloud = CloudSync(config)
         assert cloud.initialize(), "Could not connect to Supabase"
 
@@ -198,8 +198,8 @@ class TestP3T13_CloudUpload:
     def test_push_encrypted_data_in_supabase(self, config):
         mem = _seed()
 
-        from src.caretaker.storage.cloud_sync import CloudSync
-        from src.caretaker.storage.encrypt import Encryptor, encrypt_memory_dict
+        from caretaker.storage.cloud_sync import CloudSync
+        from caretaker.storage.encrypt import Encryptor, encrypt_memory_dict
 
         cloud = CloudSync(config)
         cloud.initialize()
@@ -214,7 +214,7 @@ class TestP3T13_CloudUpload:
     def test_get_remote_count_after_push(self, config):
         _seed()
 
-        from src.caretaker.storage.cloud_sync import CloudSync
+        from caretaker.storage.cloud_sync import CloudSync
         cloud = CloudSync(config)
         cloud.initialize()
         cloud.push_all()
@@ -244,7 +244,7 @@ class TestP3T14_CloudRestore:
         m2 = _seed(type="PREFERENCE", short="Prefers Python.",
                    full="I prefer Python.", keywords='["python"]')
 
-        from src.caretaker.storage.cloud_sync import CloudSync
+        from caretaker.storage.cloud_sync import CloudSync
         cloud = CloudSync(config)
         cloud.initialize()
 
@@ -261,7 +261,7 @@ class TestP3T14_CloudRestore:
         assert pull_result.get("restored", 0) >= 2
 
         # Verify both memories restored
-        from src.caretaker.storage.local_db import get_memory_by_id
+        from caretaker.storage.local_db import get_memory_by_id
         for mem in [m1, m2]:
             row = get_memory_by_id(mem["id"])
             assert row is not None, f"Memory {mem['id'][:8]} not restored from cloud"
@@ -269,7 +269,7 @@ class TestP3T14_CloudRestore:
     def test_pull_skips_already_present(self, config):
         mem = _seed()
 
-        from src.caretaker.storage.cloud_sync import CloudSync
+        from caretaker.storage.cloud_sync import CloudSync
         cloud = CloudSync(config)
         cloud.initialize()
         cloud.push_all()

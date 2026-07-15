@@ -3,13 +3,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
-from src.caretaker.retrieval.topic_detector import detect_topic
-from src.caretaker.retrieval.keyword_extractor import extract_keywords
-from src.caretaker.retrieval.budget_engine import calculate_budget
-from src.caretaker.retrieval.retrieval_engine import retrieve_context
-from src.caretaker.storage.local_db import run_migrations, save_memory
+from caretaker.retrieval.topic_detector import detect_topic
+from caretaker.retrieval.keyword_extractor import extract_keywords
+from caretaker.retrieval.budget_engine import calculate_budget
+from caretaker.retrieval.retrieval_engine import retrieve_context
+from caretaker.storage.local_db import run_migrations, save_memory
 from tests.fixtures.fixtures import SAMPLE_MESSAGES, VALID_LEVELS
-from src.caretaker.capture.capture_engine import run_capture
+from caretaker.capture.capture_engine import run_capture
 
 
 @pytest.fixture(autouse=True)
@@ -184,7 +184,7 @@ class TestRetrievalEngine:
         assert len(result["relevant"]) > 0
 
     def test_increments_retrieval_count(self):
-        from src.caretaker.storage.local_db import get_all_active_memories
+        from caretaker.storage.local_db import get_all_active_memories
         run_capture("I prefer Python for all projects.", "claude")
         retrieve_context("What do I prefer?")
         mems = get_all_active_memories()

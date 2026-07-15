@@ -40,13 +40,17 @@ def select_memory_forms(
     remaining = token_budget
     selected = []
 
-    # Sort: PRIORITY_HOT first, then by relevance_score
+    # Sort by RELEVANCE first (so the budget keeps the most relevant memories),
+    # with temperature tier only as a tiebreaker for equally-relevant memories.
+    # Previously this sorted by temperature tier first, which kept HOT/PRIORITY_HOT
+    # memories even when irrelevant and dropped the actually-relevant ones when the
+    # budget was tight.
     tier_order = {"PRIORITY_HOT": 0, "HOT": 1, "WARM": 2, "COLD": 3}
     sorted_mems = sorted(
         memories,
         key=lambda m: (
-            tier_order.get(m.get("temperature", "WARM"), 2),
             -m.get("relevance_score", 0.0),
+            tier_order.get(m.get("temperature", "WARM"), 2),
         )
     )
 

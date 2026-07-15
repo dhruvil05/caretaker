@@ -7,13 +7,13 @@ Usage:
 """
 
 import click
-from src.caretaker.cli.formatters import format_stats, print_error
+from caretaker.cli.formatters import format_stats, print_error
 
 
 @click.command("stats")
 def stats_cmd():
     """Show memory health stats: counts by type, status, temperature, agent."""
-    from src.caretaker.storage.local_db import get_stats
+    from caretaker.storage.local_db import get_stats
 
     try:
         stats = get_stats()

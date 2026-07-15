@@ -9,7 +9,7 @@ import math
 import logging
 from typing import List, Dict, Optional
 
-from src.caretaker.memory.temperature_engine import get_search_tiers
+from caretaker.memory.temperature_engine import get_search_tiers
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,6 @@ class SemanticSearcher:
                 continue
 
             semantic_sim = _distance_to_similarity(hit.get("distance", 1.0))
-            temp_weight = TEMPERATURE_WEIGHTS.get(hit.get("temperature", "WARM"), 1.0)
 
             # BUG FIX: SQLite schema uses "importance" not "importance_score"
             importance = float(record.get("importance") or record.get("importance_score") or 0.5)
@@ -133,7 +132,23 @@ class SemanticSearcher:
 
             recency = _recency_factor(last_accessed)
 
-            relevance_score = semantic_sim * temp_weight * importance * recency
+            # ── RANKING (rebalanced, Phase 3 fix) ──────────────────────────────
+            # Previously: relevance = semantic_sim * temp_weight * importance * recency.
+            # Because temp_weight (up to 2.0) and recency (down to ~0.05) are pure
+            # multipliers, temperature/recency overwhelmed semantic similarity — a
+            # weak match on a HOT/recent memory outranked a strong match on a
+            # WARM/old one by 10–100x, so the *relevant* memory was buried.
+            #
+            # New model: semantic_sim stays the dominant [0,1] signal; temperature,
+            # importance and recency are gentle MODIFIERS in [0.4, 1.0] that can
+            # nudge but never crush relevance. A relevant memory now always beats an
+            # irrelevant one, regardless of temperature/recency.
+            temp_norm = TEMPERATURE_WEIGHTS.get(hit.get("temperature", "WARM"), 1.0) / 2.0
+            temp_modifier     = 0.4 + 0.6 * temp_norm      # PRIORITY_HOT≈1.0 … COLD≈0.49
+            importance_modifier = 0.5 + 0.5 * max(0.0, min(1.0, importance))
+            recency_modifier  = 0.4 + 0.6 * max(0.0, min(1.0, recency))
+
+            relevance_score = semantic_sim * temp_modifier * importance_modifier * recency_modifier
 
             ranked.append({
                 **record,

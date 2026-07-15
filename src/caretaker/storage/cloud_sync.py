@@ -92,7 +92,7 @@ class CloudSync:
 
         # Initialize encryptor
         try:
-            from src.caretaker.storage.encrypt import Encryptor
+            from caretaker.storage.encrypt import Encryptor
             self._encryptor = Encryptor(self.config)
         except Exception as e:
             logger.error(f"[CloudSync] Encryptor init failed: {e}")
@@ -131,8 +131,8 @@ class CloudSync:
         if not self.initialize():
             return {"pushed": 0, "failed": 0, "skipped": 0, "error": "not_configured"}
 
-        from src.caretaker.storage.local_db import get_connection
-        from src.caretaker.storage.encrypt import encrypt_memory_dict
+        from caretaker.storage.local_db import get_connection
+        from caretaker.storage.encrypt import encrypt_memory_dict
 
         try:
             with get_connection() as conn:
@@ -172,8 +172,8 @@ class CloudSync:
         if not self.initialize():
             return {"pushed": 0, "failed": 0, "error": "not_configured"}
 
-        from src.caretaker.storage.local_db import get_connection
-        from src.caretaker.storage.encrypt import encrypt_memory_dict
+        from caretaker.storage.local_db import get_connection
+        from caretaker.storage.encrypt import encrypt_memory_dict
 
         try:
             with get_connection() as conn:
@@ -215,8 +215,8 @@ class CloudSync:
         if not self.initialize():
             return {"restored": 0, "skipped": 0, "failed": 0, "error": "not_configured"}
 
-        from src.caretaker.storage.local_db import get_connection, save_memory
-        from src.caretaker.storage.encrypt import decrypt_memory_dict
+        from caretaker.storage.local_db import get_connection, save_memory
+        from caretaker.storage.encrypt import decrypt_memory_dict
 
         # Fetch from Supabase (paginated — max 1000 per page)
         all_remote = []
@@ -349,7 +349,7 @@ class CloudSync:
 
     def _update_local(self, mem: dict):
         """Update an existing local memory record with cloud version."""
-        from src.caretaker.storage.local_db import get_connection
+        from caretaker.storage.local_db import get_connection
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
 

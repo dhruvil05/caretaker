@@ -28,7 +28,7 @@ setup(
     packages=find_packages(where="src"),
     entry_points={
         "console_scripts": [
-            "caretaker=caretaker.cli.__main__:main",
+            "caretaker=caretaker.cli.main:main",
         ],
     },
 )

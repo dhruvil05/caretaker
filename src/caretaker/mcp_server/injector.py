@@ -1,5 +1,5 @@
 import json
-from src.caretaker.storage.local_db import get_connection
+from caretaker.storage.local_db import get_connection
 
 
 def _load_config() -> dict:
@@ -64,16 +64,27 @@ def _get_relevant_memories(relevant: list, use_full: bool) -> str:
         mtype  = mem.get("type") or mem.get("memory_type", "MEMORY")
         status = mem.get("status", "ACTIVE")
 
-        # Phase 2 fix: support both "full" and "full_text"
-        if use_full:
+        # Phase 3 fix: honour the per-memory form chosen by the budget engine
+        # (selected_form), falling back to the batch use_full flag. This keeps a
+        # memory selected as FULL from being collapsed to an 80-char SHORT snippet.
+        form = mem.get("selected_form")
+        if form == "FULL":
             content = mem.get("full") or mem.get("full_text", "")
+            max_len = 300
+        elif form == "SHORT":
+            content = mem.get("short") or mem.get("full") or mem.get("full_text", "")
+            max_len = 80
+        elif use_full:
+            content = mem.get("full") or mem.get("full_text", "")
+            max_len = 300
         else:
             content = mem.get("short") or mem.get("full") or mem.get("full_text", "")
+            max_len = 80
 
         if not content:
             continue
 
-        content = content[:300] if use_full else content[:80]
+        content = content[:max_len]
 
         if status == "OUTDATED":
             label = f"[OUTDATED][{mtype}]"

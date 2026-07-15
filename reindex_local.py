@@ -11,8 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.caretaker.storage.local_db import get_all_active_memories, update_compression
-from src.caretaker.storage.vector_db import VectorDB
+from caretaker.storage.local_db import get_all_active_memories, update_compression
+from caretaker.storage.vector_db import VectorDB
 
 
 def local_compress(full_text: str, memory_type: str) -> tuple[str, list[str]]:

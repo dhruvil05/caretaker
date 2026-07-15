@@ -1,6 +1,6 @@
-from src.caretaker.retrieval.retrieval_engine import retrieve_context
-from src.caretaker.capture.capture_engine import run_capture
-from src.caretaker.mcp_server.injector import build_whisper
+from caretaker.retrieval.retrieval_engine import retrieve_context
+from caretaker.capture.capture_engine import run_capture
+from caretaker.mcp_server.injector import build_whisper
 import sys
 import io
 
@@ -26,7 +26,7 @@ def get_context(
 
         # Phase 3: format whisper per agent type via agent_adapter
         try:
-            from src.caretaker.mcp_server.agent_adapter import adapt, normalise_agent_id
+            from caretaker.mcp_server.agent_adapter import adapt, normalise_agent_id
             canonical = normalise_agent_id(agent_id)
             final = adapt(whisper, agent_id)
             print(f"[TOOLS] Whisper adapted for agent={canonical}")
@@ -55,6 +55,7 @@ def save_message(
     compressor=None,
     compression_queue=None,
     local_db=None,
+    vector_db=None,
 ) -> str:
     try:
         # Phase 2: pass compressor + compression_queue + local_db to capture engine
@@ -64,6 +65,7 @@ def save_message(
             compressor=compressor,
             compression_queue=compression_queue,
             local_db=local_db,
+            vector_db=vector_db,
         )
         # Phase 1: return format — unchanged
         return f"[CARETAKER] Memory saved. id={memory['id']} type={memory['type']}"

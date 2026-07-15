@@ -9,7 +9,7 @@ Quality: Medium. Speed: Very Fast. Cost: Zero.
 import re
 import math
 from typing import Tuple, List
-from src.caretaker.compression.keyword_generator import extract_keywords
+from caretaker.compression.keyword_generator import extract_keywords
 
 
 def compress_local(full_text: str, memory_type: str, max_short_tokens: int = 60) -> Tuple[str, List[str]]:

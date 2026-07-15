@@ -15,7 +15,7 @@ import click
 import tempfile
 import subprocess
 import os
-from src.caretaker.cli.formatters import (
+from caretaker.cli.formatters import (
     print_success, print_error, print_info, print_warning, confirm,
     GREY, RESET, BOLD
 )
@@ -31,7 +31,7 @@ from src.caretaker.cli.formatters import (
 )
 def edit_cmd(memory_id, field):
     """Edit memory content in your default text editor."""
-    from src.caretaker.storage.local_db import get_memory_by_id, get_all_memories, update_memory_fields
+    from caretaker.storage.local_db import get_memory_by_id, get_all_memories, update_memory_fields
 
     # Resolve ID
     mem = get_memory_by_id(memory_id)
@@ -161,7 +161,7 @@ def edit_cmd(memory_id, field):
     # Re-embed in ChromaDB if short was changed
     if "short" in updates:
         try:
-            from src.caretaker.storage.vector_db import VectorDB
+            from caretaker.storage.vector_db import VectorDB
             from pathlib import Path
             import json
 

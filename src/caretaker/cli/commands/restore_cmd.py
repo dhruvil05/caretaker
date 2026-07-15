@@ -10,7 +10,7 @@ Usage:
 """
 
 import click
-from src.caretaker.cli.formatters import (
+from caretaker.cli.formatters import (
     print_success, print_error, print_info, print_warning,
     format_memory_row
 )
@@ -20,7 +20,7 @@ from src.caretaker.cli.formatters import (
 @click.argument("memory_id")
 def restore_cmd(memory_id):
     """Restore an ARCHIVED or OUTDATED memory back to ACTIVE."""
-    from src.caretaker.storage.local_db import get_memory_by_id, get_all_memories, restore_memory
+    from caretaker.storage.local_db import get_memory_by_id, get_all_memories, restore_memory
 
     # Resolve ID
     mem = get_memory_by_id(memory_id)
@@ -52,7 +52,7 @@ def restore_cmd(memory_id):
     # Re-embed in ChromaDB if SHORT exists
     if mem.get("short"):
         try:
-            from src.caretaker.storage.vector_db import VectorDB
+            from caretaker.storage.vector_db import VectorDB
             from pathlib import Path
             import json
 

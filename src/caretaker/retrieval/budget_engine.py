@@ -1,4 +1,4 @@
-from src.caretaker.retrieval.topic_detector import detect_topic
+from caretaker.retrieval.topic_detector import detect_topic
 
 
 def calculate_budget(message: str, memories: list) -> dict:

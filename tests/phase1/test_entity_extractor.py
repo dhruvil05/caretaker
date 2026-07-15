@@ -3,7 +3,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
-from src.caretaker.capture.entity_extractor import extract_entities
+from caretaker.capture.entity_extractor import extract_entities
 from tests.fixtures.fixtures import SAMPLE_MESSAGES
 
 

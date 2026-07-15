@@ -1,6 +1,6 @@
-from src.caretaker.retrieval.keyword_extractor import extract_keywords
-from src.caretaker.retrieval.budget_engine import calculate_budget
-from src.caretaker.storage.local_db import (
+from caretaker.retrieval.keyword_extractor import extract_keywords
+from caretaker.retrieval.budget_engine import calculate_budget
+from caretaker.storage.local_db import (
     get_memories_by_type,
     get_recent_memories,
     get_all_active_memories,
@@ -35,45 +35,53 @@ def retrieve_context(
 
     # ── Phase 2: semantic search path ─────────────────────────────────────
     if semantic_searcher:
-        relevant = semantic_searcher.search(query=message, n_results=20)
+        # force_include_cold=True: a relevant memory that decayed to COLD would be
+        # invisible otherwise. The rebalanced ranking demotes COLD, so it won't
+        # dominate results — but it can now surface when genuinely relevant.
+        relevant = semantic_searcher.search(query=message, n_results=20, force_include_cold=True)
 
-        # Phase 2: reheat accessed memories + update last_accessed_at
-        for mem in relevant:
-            increment_retrieval_count(mem["id"])
-            touch_last_accessed(mem["id"])
+        if relevant:
+            # Phase 2: reheat accessed memories + update last_accessed_at
+            for mem in relevant:
+                increment_retrieval_count(mem["id"])
+                touch_last_accessed(mem["id"])
 
-            # Reheat temperature in memory engine + update DB
-            from src.caretaker.memory.temperature_engine import reheat
-            from src.caretaker.storage.local_db import update_temperature
-            new_temp = reheat(mem.get("temperature", "WARM"))
-            if new_temp != mem.get("temperature"):
-                update_temperature(mem["id"], new_temp)
-                mem["temperature"] = new_temp
+                # Reheat temperature in memory engine + update DB
+                from caretaker.memory.temperature_engine import reheat
+                from caretaker.storage.local_db import update_temperature
+                new_temp = reheat(mem.get("temperature", "WARM"))
+                if new_temp != mem.get("temperature"):
+                    update_temperature(mem["id"], new_temp)
+                    mem["temperature"] = new_temp
 
-        budget_info = calculate_budget(message, relevant)
+            budget_info = calculate_budget(message, relevant)
 
-        # Phase 2: memory selector picks SHORT or FULL per memory
-        if memory_selector:
-            selected, tokens_used = memory_selector.select_memory_forms(
-                memories=relevant,
-                token_budget=budget_info["budget"],
-            )
-        else:
-            selected = relevant
+            # Phase 2: memory selector picks SHORT or FULL per memory
+            if memory_selector:
+                selected, tokens_used = memory_selector.select_memory_forms(
+                    memories=relevant,
+                    token_budget=budget_info["budget"],
+                )
+            else:
+                selected = relevant
 
-        recent = get_recent_memories(limit=3)
+            recent = get_recent_memories(limit=3)
 
-        return {
-            "relevant":   selected,
-            "recent":     recent,
-            "budget":     budget_info["budget"],
-            "use_full":   budget_info["use_full"],
-            "level":      budget_info["level"],
-            "n_results":  budget_info.get("n_results", 10),  # Phase 2
-            "keywords":   keywords,
-        }
+            return {
+                "relevant":   selected,
+                "recent":     recent,
+                "budget":     budget_info["budget"],
+                "use_full":   budget_info["use_full"],
+                "level":      budget_info["level"],
+                "n_results":  budget_info.get("n_results", 10),  # Phase 2
+                "keywords":   keywords,
+            }
 
-    # ── Phase 1 fallback: keyword search (unchanged) ──────────────────────
+        # Semantic search returned nothing (e.g. vector store empty/un-indexed).
+        # Fall through to the keyword path below so the user still gets relevant
+        # memories instead of only the 3 most-recent ones.
+
+    # ── Phase 1 fallback: keyword search (also used when semantic is empty) ─
     all_mems = get_all_active_memories()
 
     hot_mems = [

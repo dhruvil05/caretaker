@@ -11,7 +11,7 @@ Usage:
 """
 
 import click
-from src.caretaker.cli.formatters import (
+from caretaker.cli.formatters import (
     format_list_header, format_search_result,
     print_info, print_warning, print_error,
     GREY, RESET, BOLD, CYAN
@@ -30,8 +30,8 @@ def search_cmd(query, limit):
     search_mode      = "keyword"   # default — overridden if semantic succeeds
 
     try:
-        from src.caretaker.storage.vector_db import VectorDB
-        from src.caretaker.retrieval.semantic_searcher import SemanticSearcher
+        from caretaker.storage.vector_db import VectorDB
+        from caretaker.retrieval.semantic_searcher import SemanticSearcher
         from pathlib import Path
         import json
 
@@ -55,7 +55,7 @@ def search_cmd(query, limit):
 
     # ── Fall back to SQLite keyword search ─────────────────────────────────
     if semantic_results is None:
-        from src.caretaker.storage.local_db import search_memories_by_keyword
+        from caretaker.storage.local_db import search_memories_by_keyword
         results = search_memories_by_keyword(query, limit=limit)
         if semantic_error:
             print_warning(f"ChromaDB unavailable — using keyword search. ({semantic_error})")

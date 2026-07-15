@@ -14,7 +14,7 @@ Usage:
 import click
 import json
 from pathlib import Path
-from src.caretaker.cli.formatters import (
+from caretaker.cli.formatters import (
     print_success, print_error, print_info, print_warning,
     BOLD, GREY, RESET, CYAN, GREEN
 )

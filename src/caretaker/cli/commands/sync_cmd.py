@@ -12,7 +12,7 @@ Usage:
 """
 
 import click
-from src.caretaker.cli.formatters import (
+from caretaker.cli.formatters import (
     print_success, print_error, print_info, print_warning, GREY, RESET
 )
 
@@ -34,7 +34,7 @@ def sync_cmd(direction, full):
         print_error(f"Could not load config: {e}")
         return
 
-    from src.caretaker.storage.cloud_sync import CloudSync
+    from caretaker.storage.cloud_sync import CloudSync
     cloud = CloudSync(config)
 
     if not cloud.is_configured():

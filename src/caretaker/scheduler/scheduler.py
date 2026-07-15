@@ -170,7 +170,7 @@ class CaretakerScheduler:
         Catches all exceptions — scheduler must never crash from a failed job.
         """
         try:
-            from src.caretaker.scheduler.nightly_maintenance import NightlyMaintenance
+            from caretaker.scheduler.nightly_maintenance import NightlyMaintenance
             runner = NightlyMaintenance(
                 local_db=self.local_db,
                 vector_db=self.vector_db,
@@ -217,12 +217,12 @@ async def run_maintenance_now(config: dict) -> dict:
     Usage:
         result = asyncio.run(run_maintenance_now(config))
     """
-    from src.caretaker.storage import local_db as _local_db
+    from caretaker.storage import local_db as _local_db
 
     # Try to get vector_db if available
     vector_db = None
     try:
-        from src.caretaker.storage.vector_db import VectorDB
+        from caretaker.storage.vector_db import VectorDB
         from pathlib import Path
 
         project_root  = Path(__file__).parent.parent
@@ -235,7 +235,7 @@ async def run_maintenance_now(config: dict) -> dict:
     except Exception as e:
         logger.warning(f"[Scheduler] VectorDB not available for maintenance: {e}")
 
-    from src.caretaker.scheduler.nightly_maintenance import NightlyMaintenance
+    from caretaker.scheduler.nightly_maintenance import NightlyMaintenance
     runner = NightlyMaintenance(
         local_db=_local_db,
         vector_db=vector_db,

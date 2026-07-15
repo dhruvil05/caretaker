@@ -11,7 +11,7 @@ Usage:
 """
 
 import click
-from src.caretaker.cli.formatters import (
+from caretaker.cli.formatters import (
     print_success, print_error, print_info, print_warning,
     confirm, format_memory_row, GREY, RESET
 )
@@ -22,7 +22,7 @@ from src.caretaker.cli.formatters import (
 @click.option("--force", is_flag=True, default=False, help="Skip confirmation prompt")
 def delete_cmd(memory_id, force):
     """Archive a memory (soft delete — reversible with restore)."""
-    from src.caretaker.storage.local_db import get_memory_by_id, get_all_memories, archive_memory
+    from caretaker.storage.local_db import get_memory_by_id, get_all_memories, archive_memory
 
     # Resolve ID
     mem = get_memory_by_id(memory_id)
@@ -58,7 +58,7 @@ def delete_cmd(memory_id, force):
 
     # Remove from ChromaDB too
     try:
-        from src.caretaker.storage.vector_db import VectorDB
+        from caretaker.storage.vector_db import VectorDB
         from pathlib import Path
         import json
 

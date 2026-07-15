@@ -12,7 +12,7 @@ Usage:
 """
 
 import click
-from src.caretaker.cli.formatters import (
+from caretaker.cli.formatters import (
     format_list_header, format_memory_row,
     print_info, print_warning, GREY, RESET, BOLD
 )
@@ -27,7 +27,7 @@ from src.caretaker.cli.formatters import (
 @click.option("--limit",   "limit",    default=50,   help="Max memories to show (default 50)")
 def list_cmd(mem_type, outdated, cold, show_all, agent_id, limit):
     """List memories sorted by temperature (HOT first)."""
-    from src.caretaker.storage.local_db import get_all_memories
+    from caretaker.storage.local_db import get_all_memories
 
     # Determine which status to pull
     if show_all:

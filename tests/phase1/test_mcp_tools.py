@@ -3,10 +3,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
-from src.caretaker.storage.local_db import run_migrations
-from src.caretaker.capture.capture_engine import run_capture
-from src.caretaker.mcp_server.tools import get_context, save_message
-from src.caretaker.mcp_server.injector import build_whisper
+from caretaker.storage.local_db import run_migrations
+from caretaker.capture.capture_engine import run_capture
+from caretaker.mcp_server.tools import get_context, save_message
+from caretaker.mcp_server.injector import build_whisper
 
 
 @pytest.fixture(autouse=True)

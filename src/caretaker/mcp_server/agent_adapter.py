@@ -14,7 +14,7 @@ Supported agents (agent_id values):
   "copilot"      → GitHub Copilot
   "custom"       → Any unknown/custom agent — safe neutral format
 
-Key design principle (from src.caretaker_theory_v2.docx):
+Key design principle (from caretaker_theory_v2.docx):
   The agent receives context, NOT source attribution.
   NOT: "User previously talked to Claude about X"
   YES: "User has been building X project using Y stack."

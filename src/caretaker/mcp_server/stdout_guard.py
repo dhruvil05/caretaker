@@ -3,7 +3,7 @@ caretaker/mcp_server/stdout_guard.py
 
 IMPORT THIS FIRST — before everything else in server.py.
 
-    from src.caretaker.mcp_server.stdout_guard import apply  # noqa: F401
+    from caretaker.mcp_server.stdout_guard import apply  # noqa: F401
 
 This file:
 1. Redirects ALL warnings to stderr

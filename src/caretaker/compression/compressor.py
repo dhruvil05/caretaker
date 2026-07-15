@@ -10,9 +10,9 @@ import json
 import logging
 from typing import Tuple, List
 
-from src.caretaker.compression.templates import get_template
-from src.caretaker.compression.keyword_generator import extract_keywords
-from src.caretaker.compression.local_compressor import compress_local
+from caretaker.compression.templates import get_template
+from caretaker.compression.keyword_generator import extract_keywords
+from caretaker.compression.local_compressor import compress_local
 
 logger = logging.getLogger(__name__)
 

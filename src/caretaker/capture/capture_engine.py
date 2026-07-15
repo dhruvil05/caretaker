@@ -1,16 +1,31 @@
 import uuid
 import json
+import re
 from datetime import datetime, timezone
 
-from src.caretaker.capture.entity_extractor import extract_entities
-from src.caretaker.capture.type_classifier import classify_type
-from src.caretaker.storage.local_db import save_memory
+from caretaker.capture.entity_extractor import extract_entities
+from caretaker.capture.type_classifier import classify_type
+from caretaker.storage.local_db import save_memory
 
 # ── Phase 2 imports ────────────────────────────────────────────────────────────
-from src.caretaker.memory.importance_scorer import score_importance
-from src.caretaker.memory.temperature_engine import assign_temperature
-from src.caretaker.memory.conflict_checker import full_conflict_pipeline
-from src.caretaker.capture.long_message_handler import is_long_message, process_long_message
+from caretaker.memory.importance_scorer import score_importance
+from caretaker.memory.temperature_engine import assign_temperature
+from caretaker.memory.conflict_checker import full_conflict_pipeline
+from caretaker.capture.long_message_handler import is_long_message, process_long_message
+
+
+def _local_short(full_text: str, max_words: int = 60) -> str:
+    """Generate a SHORT embedding text locally when the compressor hasn't run.
+
+    Mirrors reindex_local.py: first ~60 words of the full text. Good enough
+    for immediate semantic searchability; the compression queue may later
+    replace it with a higher-quality summary.
+    """
+    words = re.sub(r"\s+", " ", (full_text or "").strip()).split()
+    short = " ".join(words[:max_words])
+    if len(words) > max_words:
+        short += "..."
+    return short
 
 
 def get_temperature(importance: float) -> str:
@@ -35,6 +50,7 @@ def run_capture(
     compressor=None,       # Phase 2: optional Compressor instance
     compression_queue=None, # Phase 2: optional CompressionQueue instance
     local_db=None,          # Phase 2: optional db reference for conflict check
+    vector_db=None,         # Phase 2: embed into ChromaDB on save (immediate searchability)
 ) -> dict:
 
     # ── Phase 1: classify + extract (unchanged) ───────────────────────────
@@ -111,6 +127,28 @@ def run_capture(
 
         if success:
             print(f"[CAPTURE] Saved memory {memory['id']} | type={memory['type']} | temp={memory['temperature']}")
+
+            # ── Phase 3: embed into ChromaDB immediately so the memory is
+            # searchable on the very next retrieval, independent of the async
+            # compression queue (which may not be running). If the compressor
+            # later produces a better SHORT, the queue will upsert again.
+            if vector_db:
+                short = memory.get("short") or _local_short(chunk["full_text"])
+                try:
+                    kws = json.loads(memory.get("keywords") or "[]")
+                except Exception:
+                    kws = []
+                try:
+                    vector_db.upsert(
+                        memory_id=memory["id"],
+                        short=short,
+                        keywords=kws,
+                        temperature=memory.get("temperature", "HOT"),
+                        memory_type=memory.get("type", "LEARNING"),
+                        importance_score=float(memory.get("importance") or 0.5),
+                    )
+                except Exception as e:
+                    print(f"[CAPTURE] VectorDB upsert failed: {e}")
 
             # ── Phase 2: enqueue compression if short not yet generated ───
             if compression_queue and not memory.get("short"):

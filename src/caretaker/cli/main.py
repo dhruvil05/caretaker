@@ -29,31 +29,20 @@ Usage:
     caretaker maintenance
 """
 
-import sys
-import os
-from pathlib import Path
-
-# ── Ensure project root is on sys.path ────────────────────────────────────────
-# This lets CLI imports (storage.local_db, etc.) resolve correctly
-# whether caretaker is installed as a package or run from source.
-_project_root = Path(__file__).parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
 import click
 
-from src.caretaker.cli.commands.list_cmd    import list_cmd
-from src.caretaker.cli.commands.view_cmd    import view_cmd
-from src.caretaker.cli.commands.search_cmd  import search_cmd
-from src.caretaker.cli.commands.edit_cmd    import edit_cmd
-from src.caretaker.cli.commands.delete_cmd  import delete_cmd
-from src.caretaker.cli.commands.restore_cmd import restore_cmd
-from src.caretaker.cli.commands.stats_cmd   import stats_cmd
-from src.caretaker.cli.commands.export_cmd  import export_cmd
-from src.caretaker.cli.commands.import_cmd  import import_cmd
-from src.caretaker.cli.commands.sync_cmd    import sync_cmd
-from src.caretaker.cli.commands.config_cmd  import config_cmd
-from src.caretaker.cli.formatters           import BOLD, RESET, CYAN, GREY, GREEN, YELLOW
+from caretaker.cli.commands.list_cmd    import list_cmd
+from caretaker.cli.commands.view_cmd    import view_cmd
+from caretaker.cli.commands.search_cmd  import search_cmd
+from caretaker.cli.commands.edit_cmd    import edit_cmd
+from caretaker.cli.commands.delete_cmd  import delete_cmd
+from caretaker.cli.commands.restore_cmd import restore_cmd
+from caretaker.cli.commands.stats_cmd   import stats_cmd
+from caretaker.cli.commands.export_cmd  import export_cmd
+from caretaker.cli.commands.import_cmd  import import_cmd
+from caretaker.cli.commands.sync_cmd    import sync_cmd
+from caretaker.cli.commands.config_cmd  import config_cmd
+from caretaker.cli.formatters           import BOLD, RESET, CYAN, GREEN, YELLOW
 
 
 # ── CLI group ──────────────────────────────────────────────────────────────────
@@ -120,7 +109,7 @@ def maintenance_cmd():
     click.echo(f"\n{CYAN}Running nightly maintenance…{RESET}")
 
     try:
-        from src.caretaker.scheduler.scheduler import run_maintenance_now
+        from caretaker.scheduler.scheduler import run_maintenance_now
         result = asyncio.run(run_maintenance_now(config))
 
         click.echo(f"\n{BOLD}Maintenance Results:{RESET}")
@@ -150,8 +139,8 @@ def maintenance_cmd():
 @click.argument("value", type=float)
 def score_cmd(memory_id, value):
     """Manually set importance score for a memory (0.0 – 1.0)."""
-    from src.caretaker.cli.formatters import print_success, print_error, print_info
-    from src.caretaker.storage.local_db import get_memory_by_id, get_all_memories, update_memory_fields
+    from caretaker.cli.formatters import print_success, print_error
+    from caretaker.storage.local_db import get_memory_by_id, get_all_memories, update_memory_fields
 
     if not 0.0 <= value <= 1.0:
         print_error("Score must be between 0.0 and 1.0")
@@ -170,7 +159,7 @@ def score_cmd(memory_id, value):
     old_score = mem.get("importance", 0.5)
 
     # Recalculate temperature from new score
-    from src.caretaker.memory.temperature_engine import assign_temperature
+    from caretaker.memory.temperature_engine import assign_temperature
     new_temp = assign_temperature(value, mem.get("temperature", "WARM"))
 
     ok = update_memory_fields(mem["id"], {
@@ -189,7 +178,7 @@ def score_cmd(memory_id, value):
 def _show_dashboard():
     """Quick summary shown when caretaker is run alone."""
     try:
-        from src.caretaker.storage.local_db import get_stats
+        from caretaker.storage.local_db import get_stats
         stats = get_stats()
 
         total    = stats.get("total", 0)

@@ -107,7 +107,7 @@ class NightlyMaintenance:
         logger.info("[NightlyMaintenance] Task 1: Batch temperature decay...")
 
         try:
-            from src.caretaker.memory.temperature_engine import apply_decay
+            from caretaker.memory.temperature_engine import apply_decay
 
             memories      = self.local_db.get_all_for_decay()
             changed_count = 0
@@ -163,7 +163,7 @@ class NightlyMaintenance:
             include_cold  = self.config.get("include_cold_in_search", False)
             removed_count = 0
 
-            from src.caretaker.storage.local_db import get_connection
+            from caretaker.storage.local_db import get_connection
             with get_connection() as conn:
                 rows = conn.execute(
                     "SELECT id, status, temperature FROM memories "
@@ -218,7 +218,7 @@ class NightlyMaintenance:
         try:
             archive_threshold = self.config.get("archive_score", 0.2)
 
-            from src.caretaker.storage.local_db import get_connection
+            from caretaker.storage.local_db import get_connection
             with get_connection() as conn:
                 rows = conn.execute(
                     "SELECT id, decay_score FROM memories "
@@ -395,7 +395,7 @@ class NightlyMaintenance:
         logger.info("[NightlyMaintenance] Task 5: Importance boost...")
 
         try:
-            from src.caretaker.storage.local_db import get_connection
+            from caretaker.storage.local_db import get_connection
 
             # Fetch frequently accessed active memories
             with get_connection() as conn:
@@ -423,7 +423,7 @@ class NightlyMaintenance:
                     )
 
                     # Recalculate temperature based on new importance
-                    from src.caretaker.memory.temperature_engine import assign_temperature
+                    from caretaker.memory.temperature_engine import assign_temperature
                     new_temp = assign_temperature(new_importance, mem.get("temperature", "WARM"))
                     if new_temp != mem.get("temperature"):
                         self.local_db.update_temperature(mem["id"], new_temp)
@@ -456,7 +456,7 @@ class NightlyMaintenance:
         logger.info("[NightlyMaintenance] Task 6: Cloud sync...")
 
         try:
-            from src.caretaker.storage.cloud_sync import CloudSync
+            from caretaker.storage.cloud_sync import CloudSync
             cloud = CloudSync(self.config)
 
             if not cloud.is_configured():
@@ -503,7 +503,7 @@ class NightlyMaintenance:
             return 0
 
         try:
-            from src.caretaker.storage.local_db import get_connection
+            from caretaker.storage.local_db import get_connection
 
             # Fetch ACTIVE memories with SHORT text that should be in ChromaDB
             with get_connection() as conn:
@@ -565,7 +565,7 @@ class NightlyMaintenance:
         Also writes a maintenance log file for audit trail.
         """
         try:
-            from src.caretaker.storage.local_db import get_stats
+            from caretaker.storage.local_db import get_stats
             stats = get_stats()
 
             vector_count = self.vector_db.count() if self.vector_db else "N/A"

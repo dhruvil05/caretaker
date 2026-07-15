@@ -14,7 +14,7 @@ import click
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from src.caretaker.cli.formatters import print_success, print_error, print_info, GREY, RESET
+from caretaker.cli.formatters import print_success, print_error, print_info, GREY, RESET
 
 
 @click.command("export")
@@ -28,7 +28,7 @@ from src.caretaker.cli.formatters import print_success, print_error, print_info,
 )
 def export_cmd(output_file, status_filter):
     """Export all memories to a JSON file for backup or migration."""
-    from src.caretaker.storage.local_db import get_all_memories
+    from caretaker.storage.local_db import get_all_memories
 
     memories = get_all_memories(status=status_filter)
 

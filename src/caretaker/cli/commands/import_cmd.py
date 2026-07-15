@@ -12,7 +12,7 @@ Usage:
 import click
 import json
 from pathlib import Path
-from src.caretaker.cli.formatters import (
+from caretaker.cli.formatters import (
     print_success, print_error, print_info, print_warning, confirm
 )
 
@@ -29,7 +29,7 @@ from src.caretaker.cli.formatters import (
 )
 def import_cmd(input_file, skip_existing, force):
     """Import memories from a JSON export file."""
-    from src.caretaker.storage.local_db import get_memory_by_id, upsert_memory
+    from caretaker.storage.local_db import get_memory_by_id, upsert_memory
 
     input_path = Path(input_file)
     if not input_path.exists():
@@ -91,7 +91,7 @@ def import_cmd(input_file, skip_existing, force):
     # Re-embed imported memories into ChromaDB
     if imported > 0:
         try:
-            from src.caretaker.storage.vector_db import VectorDB
+            from caretaker.storage.vector_db import VectorDB
             import json as _json
 
             config_path = Path(__file__).parent.parent.parent.parent.parent / "config.json"

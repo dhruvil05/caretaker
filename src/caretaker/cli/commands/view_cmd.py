@@ -8,14 +8,14 @@ Usage:
 """
 
 import click
-from src.caretaker.cli.formatters import format_memory_card, print_error, print_info
+from caretaker.cli.formatters import format_memory_card, print_error, print_info
 
 
 @click.command("view")
 @click.argument("memory_id")
 def view_cmd(memory_id):
     """Show full details of one memory unit."""
-    from src.caretaker.storage.local_db import get_memory_by_id, get_all_memories
+    from caretaker.storage.local_db import get_memory_by_id, get_all_memories
 
     # Try exact match first
     mem = get_memory_by_id(memory_id)

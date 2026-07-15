@@ -19,7 +19,7 @@ from datetime import datetime, timezone, timedelta
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import pytest
-import src.caretaker.storage.local_db as db_module
+import caretaker.storage.local_db as db_module
 
 
 # ── Isolated DB ────────────────────────────────────────────────────────────────

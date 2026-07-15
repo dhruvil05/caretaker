@@ -114,7 +114,7 @@ class MaintenanceRunner:
         logger.info("[Maintenance] Task 1: Batch temperature decay...")
 
         try:
-            from src.caretaker.memory.temperature_engine import apply_decay
+            from caretaker.memory.temperature_engine import apply_decay
 
             memories = self.local_db.get_all_for_decay()
             changed_count = 0
@@ -209,7 +209,7 @@ class MaintenanceRunner:
             from pathlib import Path
 
             # Reuse DB_PATH from local_db module
-            from src.caretaker.storage.local_db import get_connection
+            from caretaker.storage.local_db import get_connection
             with get_connection() as conn:
                 rows = conn.execute(
                     "SELECT id, status, temperature FROM memories WHERE status = 'OUTDATED' OR temperature = 'COLD'"
@@ -232,7 +232,7 @@ class MaintenanceRunner:
         try:
             archive_threshold = self.config.get("archive_score", 0.2)
 
-            from src.caretaker.storage.local_db import get_connection
+            from caretaker.storage.local_db import get_connection
             with get_connection() as conn:
                 rows = conn.execute(
                     "SELECT id, decay_score FROM memories WHERE status = 'ACTIVE' AND decay_score < ?",
@@ -265,7 +265,7 @@ class MaintenanceRunner:
     ):
         """Log a memory health summary after all tasks complete."""
         try:
-            from src.caretaker.storage.local_db import get_connection
+            from caretaker.storage.local_db import get_connection
             with get_connection() as conn:
                 total = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
                 active = conn.execute("SELECT COUNT(*) FROM memories WHERE status='ACTIVE'").fetchone()[0]
