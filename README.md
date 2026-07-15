@@ -66,7 +66,12 @@ uv venv
 uv pip install -e .
 ```
 
-This installs all dependencies from `pyproject.toml` and registers the `caretaker` CLI command.
+This installs all dependencies from `pyproject.toml` (hatchling build, `src/` layout) and registers the `caretaker` CLI command. After install, `caretaker --help` and `python -m caretaker` both work.
+
+> **Note:** A `config.example.json` ships with the repo. Copy it to `config.json` and fill in your values:
+> ```bash
+> cp config.example.json config.json
+> ```
 
 ### Step 3 — Install Phase 2 NLP model
 
@@ -100,6 +105,8 @@ For cloud backup (optional), also fill in:
 
 Leave `supabase_url` empty to run fully local with no cloud sync.
 
+**Compression (no API key needed):** set `"compression_model": "local"` to use the built-in spaCy + TextRank summarizer (free, offline). Leave it as `"claude-haiku-4-5-20251001"` (with a valid `anthropic_api_key`) for higher-quality summaries.
+
 ### Step 5 — Connect Claude Desktop
 
 Edit the Claude Desktop config file at:
@@ -117,7 +124,7 @@ C:\Users\<you>\AppData\Roaming\Claude\claude_desktop_config.json
         "--project",
         "C:\\Users\\<you>\\Desktop\\Project Tomorrow\\packages\\caretaker",
         "python",
-        "C:\\Users\\<you>\\Desktop\\Project Tomorrow\\packages\\caretaker\\mcp_server\\server.py"
+        "C:\\Users\\<you>\\Desktop\\Project Tomorrow\\packages\\caretaker\\src\\caretaker\\mcp_server\\server.py"
       ]
     }
   }
@@ -158,7 +165,7 @@ Set both `caretaker_get_context` and `caretaker_save_message` to **Always allow*
 
 ```bash
 cd "C:\Users\<you>\Desktop\Project Tomorrow\packages\caretaker"
-uv run python mcp_server/server.py
+uv run python src/caretaker/mcp_server/server.py
 ```
 
 Expected output:
@@ -307,78 +314,90 @@ All data that leaves the local machine is encrypted with AES-256-GCM before uplo
 
 ## Project Structure
 
+The package lives under `src/caretaker/` (PEP 517 `src/` layout, built with hatchling). `python -m caretaker` and the `caretaker` CLI both resolve to `src/caretaker/cli/main.py`.
+
 ```
 caretaker/
-├── mcp_server/
-│   ├── server.py           # FastMCP entry point
-│   ├── tools.py            # caretaker_get_context + caretaker_save_message
-│   ├── injector.py         # Builds whisper context string
-│   └── agent_adapter.py    # Formats whisper per agent type (Phase 3)
-├── capture/
-│   ├── capture_engine.py   # Main capture pipeline
-│   ├── entity_extractor.py # Pulls facts, tools, names from message
-│   ├── type_classifier.py  # Assigns TYPE + SUBTYPE + FACT_TYPE
-│   └── long_message_handler.py  # Splits/compresses messages >400 tokens
-├── retrieval/
-│   ├── retrieval_engine.py # Main retrieval controller
-│   ├── topic_detector.py   # Message complexity L0–L5
-│   ├── keyword_extractor.py# Key term extraction
-│   ├── budget_engine.py    # Smart token budget calculator
-│   ├── memory_selector.py  # Picks SHORT or FULL per memory
-│   └── semantic_searcher.py# ChromaDB semantic search
-├── memory/
-│   ├── conflict_checker.py # REPLACEABLE vs ADDITIVE conflict resolution
-│   ├── temperature_engine.py # HOT/WARM/COLD tier assignment
-│   ├── decay_engine.py     # Score decay over time
-│   └── importance_scorer.py# Initial importance score on capture
-├── compression/
-│   ├── compressor.py       # Haiku API — generates SHORT + KEYWORDS
-│   ├── templates.py        # Type-specific compression prompts
-│   └── keyword_generator.py# Extract keywords from SHORT
-├── storage/
-│   ├── local_db.py         # SQLite CRUD — source of truth
-│   ├── vector_db.py        # ChromaDB handler
-│   ├── cloud_sync.py       # Supabase upload + restore (Phase 3)
-│   ├── encrypt.py          # AES-256-GCM encryption (Phase 3)
-│   └── migrations/
-│       └── v001_initial.sql
-├── scheduler/
-│   ├── scheduler.py        # APScheduler nightly job (Phase 3)
-│   ├── nightly_maintenance.py  # 8-task maintenance pipeline (Phase 3)
-│   ├── maintenance.py      # Phase 2 async maintenance runner
-│   └── compression_queue.py# Async background compression
-├── cli/                    # Phase 3 — all CLI commands
-│   ├── main.py             # Click entry point
-│   ├── formatters.py       # ANSI terminal formatting
-│   └── commands/
-│       ├── list_cmd.py
-│       ├── view_cmd.py
-│       ├── search_cmd.py
-│       ├── edit_cmd.py
-│       ├── delete_cmd.py
-│       ├── restore_cmd.py
-│       ├── stats_cmd.py
-│       ├── export_cmd.py
-│       ├── import_cmd.py
-│       ├── sync_cmd.py
-│       └── config_cmd.py
+├── src/
+│   └── caretaker/
+│       ├── __init__.py
+│       ├── __main__.py         # Enables `python -m caretaker`
+│       ├── mcp_server/
+│       │   ├── server.py       # FastMCP entry point (imports stdout_guard first)
+│       │   ├── stdout_guard.py # Routes ALL output to stderr (protects JSON-RPC)
+│       │   ├── tools.py        # caretaker_get_context + caretaker_save_message
+│       │   ├── injector.py     # Builds whisper context string
+│       │   └── agent_adapter.py# Formats whisper per agent type (Phase 3)
+│       ├── capture/
+│       │   ├── capture_engine.py   # Main capture pipeline
+│       │   ├── entity_extractor.py # Pulls facts, tools, names from message
+│       │   ├── type_classifier.py  # Assigns TYPE + SUBTYPE + FACT_TYPE
+│       │   └── long_message_handler.py  # Splits/compresses messages >400 tokens
+│       ├── retrieval/
+│       │   ├── retrieval_engine.py # Main retrieval controller
+│       │   ├── topic_detector.py   # Message complexity L0–L5
+│       │   ├── keyword_extractor.py# Key term extraction
+│       │   ├── budget_engine.py    # Smart token budget calculator
+│       │   ├── memory_selector.py  # Picks SHORT or FULL per memory
+│       │   └── semantic_searcher.py# ChromaDB semantic search
+│       ├── memory/
+│       │   ├── conflict_checker.py # REPLACEABLE vs ADDITIVE conflict resolution
+│       │   ├── temperature_engine.py # HOT/WARM/COLD tier assignment
+│       │   └── importance_scorer.py# Initial importance score on capture
+│       ├── compression/
+│       │   ├── compressor.py       # Haiku API — generates SHORT + KEYWORDS
+│       │   ├── local_compressor.py # FREE offline spaCy+TextRank compression
+│       │   ├── templates.py        # Type-specific compression prompts
+│       │   └── keyword_generator.py# Extract keywords from SHORT
+│       ├── storage/
+│       │   ├── local_db.py         # SQLite CRUD — source of truth
+│       │   ├── vector_db.py        # ChromaDB handler
+│       │   ├── cloud_sync.py       # Supabase upload + restore (Phase 3)
+│       │   ├── encrypt.py          # AES-256-GCM encryption (Phase 3)
+│       │   └── migrations/
+│       │       └── v001_initial.sql
+│       ├── scheduler/
+│       │   ├── scheduler.py        # APScheduler nightly job (Phase 3)
+│       │   ├── nightly_maintenance.py  # 8-task maintenance pipeline (Phase 3)
+│       │   ├── maintenance.py      # Phase 2 async maintenance runner
+│       │   └── compression_queue.py# Async background compression
+│       └── cli/
+│           ├── main.py             # Click entry point (`caretaker` command)
+│           ├── formatters.py       # ANSI terminal formatting
+│           └── commands/
+│               ├── list_cmd.py
+│               ├── view_cmd.py
+│               ├── search_cmd.py
+│               ├── edit_cmd.py
+│               ├── delete_cmd.py
+│               ├── restore_cmd.py
+│               ├── stats_cmd.py
+│               ├── export_cmd.py
+│               ├── import_cmd.py
+│               ├── sync_cmd.py
+│               └── config_cmd.py
 ├── tests/
-│   ├── phase1/             # 10 tests — core pipeline
-│   ├── phase2/             # 15 tests — intelligence layer
-│   ├── phase3/             # 18 tests — multi-agent + CLI + cloud
-│   └── fixtures/           # Shared test data
-├── config.json             # System configuration
-├── pyproject.toml          # Dependencies + CLI entry point
+│   ├── conftest.py             # Shared pytest fixtures + asyncio auto-mode
+│   ├── fixtures/fixtures.py    # Shared test data
+│   ├── phase1/                 # Core pipeline (capture, classify, db, mcp, retrieval)
+│   ├── phase2/                 # Intelligence layer (compression, retrieval, decay)
+│   └── phase3/                 # Multi-agent + CLI + cloud + maintenance
+├── config.example.json      # Template config (copy → config.json)
+├── config.json              # System configuration (gitignored)
+├── pyproject.toml          # Dependencies + hatchling build + CLI entry point
 ├── setup.py                # Editable install shim
+├── uv.lock                 # Locked dependency versions
 └── README.md
 ```
+
+> **Tests run against `src/`:** `pyproject.toml` sets `pythonpath = ["src"]` and `testpaths = ["tests"]`, so `pytest tests/` imports the real `caretaker` package from `src/`.
 
 ---
 
 ## Running Tests
 
 ```bash
-# All phases
+# From the project root (pytest auto-discovers via pyproject config)
 pytest tests/ -v
 
 # Specific phase
@@ -390,7 +409,7 @@ pytest tests/phase3/ -v
 # They auto-skip if not configured — safe to run anywhere
 ```
 
-Expected: 43+ tests passing. Phase 3 cloud tests (P3-T13, P3-T14) skip when Supabase not configured.
+Expected: 200+ tests passing across all three phases. Phase 3 cloud tests skip automatically when Supabase is not configured.
 
 ---
 
@@ -403,7 +422,7 @@ Check `claude_desktop_config.json` paths. All backslashes must be doubled (`\\`)
 Run `caretaker maintenance` to trigger a reindex. Or send a message — Phase 2 compression queue will re-embed on next server start.
 
 **Compression not working**  
-Check `anthropic_api_key` in `config.json`. Haiku API key must be valid. The system falls back to storing raw text if Haiku fails — no crash.
+Check `anthropic_api_key` in `config.json`. Haiku API key must be valid. The system falls back to storing raw text if Haiku fails — no crash. For zero-config operation, set `"compression_model": "local"` in `config.json` to use the built-in spaCy + TextRank summarizer (no API key, fully offline).
 
 **Cloud sync failing**  
 Run `caretaker sync` and read the error. Most common causes: empty `supabase_url`, wrong `supabase_key`, or `encrypt_key` not set. Cloud sync is optional — system runs fully offline without it.
@@ -422,6 +441,7 @@ Make sure you are running from the project root: `cd packages/caretaker` before 
 |-----------|---------|-------|
 | Python 3.12+ | Core language | 1 |
 | FastMCP | MCP server framework | 1 |
+| Pydantic | Tool schemas / config models | 1 |
 | SQLite | Local memory database | 1 |
 | spaCy | NLP entity extraction | 1 |
 | sentence-transformers | Local embeddings | 2 |
@@ -432,6 +452,7 @@ Make sure you are running from the project root: `cd packages/caretaker` before 
 | cryptography | AES-256-GCM encryption | 3 |
 | Supabase | Cloud backup | 3 |
 | pytest | Test framework | All |
+| hatchling | Build backend (`src/` layout) | All |
 | uv | Package manager | All |
 
 ---
