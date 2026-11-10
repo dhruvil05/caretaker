@@ -1,11 +1,15 @@
+from caretaker.paths import db_path
 import sqlite3
 import json
 import os
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent.parent.parent / "caretaker.db"
+# <data_dir>/data/caretaker.db — see caretaker/paths.py
+DB_PATH = db_path()
 MIGRATION_PATH = Path(__file__).parent / "migrations" / "v001_initial.sql"
 
 
@@ -54,7 +58,7 @@ def save_memory(memory: dict) -> bool:
             conn.execute(sql, memory)
         return True
     except Exception as e:
-        print(f"[DB] save_memory error: {e}")
+        logger.error(f"[DB] save_memory error: {e}")
         return False
 
 
@@ -223,30 +227,44 @@ def get_all_memories(status: str = None) -> list:
     return [dict(r) for r in rows]
 
 
-def update_memory_fields(memory_id: str, fields: dict) -> bool:
+def get_memory_columns(conn) -> set:
+    """Column names of the local memories table (read from the schema)."""
+    return {row[1] for row in conn.execute("PRAGMA table_info(memories)")}
+
+
+def update_memory_fields(memory_id: str, fields: dict, touch_updated_at: bool = True) -> bool:
     """
     Phase 3: Update arbitrary fields on a memory record.
-    Used by CLI edit command and cloud restore.
+    Used by CLI edit command, import and cloud restore.
 
     fields: dict of column_name → new_value
-    Always sets updated_at to now.
+    Only real columns of the memories table are written (column names go
+    into the SQL text, so they must never come straight from imported or
+    downloaded data). Unknown keys are dropped. `id` can't be changed.
+    Sets updated_at to now unless touch_updated_at=False.
     """
     if not fields:
         return False
 
-    now = datetime.now(timezone.utc).isoformat()
-    fields["updated_at"] = now
+    fields = dict(fields)  # don't mutate the caller's dict
+    fields.pop("id", None)
+    if touch_updated_at or "updated_at" not in fields:
+        fields["updated_at"] = datetime.now(timezone.utc).isoformat()
 
-    set_clause = ", ".join(f"{k} = ?" for k in fields)
-    values     = list(fields.values()) + [memory_id]
-
-    sql = f"UPDATE memories SET {set_clause} WHERE id = ?"
     try:
         with get_connection() as conn:
-            conn.execute(sql, values)
+            allowed = get_memory_columns(conn)
+            unknown = [k for k in fields if k not in allowed]
+            if unknown:
+                logger.warning(f"[DB] update_memory_fields: ignoring unknown fields {unknown}")
+            fields = {k: v for k, v in fields.items() if k in allowed}
+
+            set_clause = ", ".join(f'"{k}" = ?' for k in fields)
+            values     = list(fields.values()) + [memory_id]
+            conn.execute(f"UPDATE memories SET {set_clause} WHERE id = ?", values)
         return True
     except Exception as e:
-        print(f"[DB] update_memory_fields error: {e}")
+        logger.error(f"[DB] update_memory_fields error: {e}")
         return False
 
 
@@ -262,7 +280,7 @@ def archive_memory(memory_id: str) -> bool:
             conn.execute(sql, (now, memory_id))
         return True
     except Exception as e:
-        print(f"[DB] archive_memory error: {e}")
+        logger.error(f"[DB] archive_memory error: {e}")
         return False
 
 
@@ -284,7 +302,7 @@ def restore_memory(memory_id: str) -> bool:
             conn.execute(sql, (now, memory_id))
         return True
     except Exception as e:
-        print(f"[DB] restore_memory error: {e}")
+        logger.error(f"[DB] restore_memory error: {e}")
         return False
 
 

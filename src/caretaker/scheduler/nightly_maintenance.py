@@ -602,12 +602,10 @@ class NightlyMaintenance:
             logger.warning(f"[NightlyMaintenance] Stats report failed: {e}")
 
     def _write_log_file(self, report: str):
-        """Write maintenance report to logs/maintenance.log."""
+        """Write maintenance report to <data_dir>/logs/maintenance.log."""
         try:
-            from pathlib import Path
-            log_dir = Path(__file__).parent.parent / "logs"
-            log_dir.mkdir(exist_ok=True)
-            log_path = log_dir / "maintenance.log"
+            from caretaker.paths import logs_dir
+            log_path = logs_dir() / "maintenance.log"
 
             timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
             with open(log_path, "a", encoding="utf-8") as f:

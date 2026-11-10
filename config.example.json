@@ -68,8 +68,6 @@
   "boost_per_retrieval": 0.02,
   "boost_max": 0.15,
 
-  "_comment_database": "──── Database paths ────\nUpdate chromadb_path to your absolute local path.",
-  "database": {
-    "chromadb_path": "C:/Users/dell/Desktop/Project Tomorrow/packages/caretaker/data/chromadb"
-  }
+  "_comment_storage": "──── Storage location ────\nAll Caretaker files (database, vector index, logs, exports, model cache) go under data_dir.\nEmpty = <project>/public. Relative paths are relative to the project folder.\nThe CARETAKER_DATA_DIR environment variable overrides this.",
+  "data_dir": ""
 }

@@ -223,13 +223,9 @@ async def run_maintenance_now(config: dict) -> dict:
     vector_db = None
     try:
         from caretaker.storage.vector_db import VectorDB
-        from pathlib import Path
+        from caretaker.paths import chromadb_dir
 
-        project_root  = Path(__file__).parent.parent
-        chromadb_path = config.get("database", {}).get(
-            "chromadb_path",
-            str(project_root / "data" / "chromadb"),
-        )
+        chromadb_path = str(chromadb_dir(config))
         vector_db = VectorDB(persist_directory=chromadb_path)
         vector_db.initialize()
     except Exception as e:

@@ -10,6 +10,7 @@ Usage:
     caretaker search "editor preferences" --limit 5
 """
 
+from caretaker.paths import CONFIG_PATH, chromadb_dir
 import click
 from caretaker.cli.formatters import (
     format_list_header, format_search_result,
@@ -35,11 +36,11 @@ def search_cmd(query, limit):
         from pathlib import Path
         import json
 
-        config_path = Path(__file__).parent.parent.parent.parent.parent / "config.json"
+        config_path = CONFIG_PATH
         with open(config_path) as f:
             config = json.load(f)
 
-        chromadb_path = config.get("database", {}).get("chromadb_path", "data/chromadb")
+        chromadb_path = str(chromadb_dir(config))
         vector_db = VectorDB(persist_directory=chromadb_path)
         vector_db.initialize()
 

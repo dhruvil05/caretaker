@@ -11,6 +11,7 @@ Usage:
     caretaker config set user_handle Dhruvil
 """
 
+from caretaker.paths import CONFIG_PATH
 import click
 import json
 from pathlib import Path
@@ -19,7 +20,6 @@ from caretaker.cli.formatters import (
     BOLD, GREY, RESET, CYAN, GREEN
 )
 
-CONFIG_PATH = Path(__file__).parent.parent.parent.parent.parent / "config.json"
 
 
 def _load_config() -> dict:

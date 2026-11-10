@@ -9,6 +9,7 @@ Usage:
     caretaker import backup.json --skip-existing
 """
 
+from caretaker.paths import CONFIG_PATH, chromadb_dir
 import click
 import json
 from pathlib import Path
@@ -20,8 +21,8 @@ from caretaker.cli.formatters import (
 @click.command("import")
 @click.argument("input_file")
 @click.option(
-    "--skip-existing", "skip_existing", is_flag=True, default=True,
-    help="Skip memories that already exist locally (default: True)"
+    "--skip-existing/--overwrite", "skip_existing", default=True,
+    help="Skip memories that already exist locally (default), or overwrite them"
 )
 @click.option(
     "--force", is_flag=True, default=False,
@@ -94,11 +95,11 @@ def import_cmd(input_file, skip_existing, force):
             from caretaker.storage.vector_db import VectorDB
             import json as _json
 
-            config_path = Path(__file__).parent.parent.parent.parent.parent / "config.json"
+            config_path = CONFIG_PATH
             with open(config_path) as f:
                 config = _json.load(f)
 
-            chromadb_path = config.get("database", {}).get("chromadb_path", "data/chromadb")
+            chromadb_path = str(chromadb_dir(config))
             vdb = VectorDB(persist_directory=chromadb_path)
             vdb.initialize()
 

@@ -13,6 +13,11 @@ share similar names but come from different modules — both are exposed here
 under distinct names to avoid clashing.
 """
 
+# Must run before anything below imports huggingface_hub / sentence_transformers /
+# torch, which read their cache locations at import time.
+from .paths import configure_cache_env as _configure_cache_env
+_configure_cache_env()
+
 from .capture import (
     get_temperature,
     count_tokens_approx,

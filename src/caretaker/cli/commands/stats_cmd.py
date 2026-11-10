@@ -6,6 +6,7 @@ Usage:
     caretaker stats
 """
 
+from caretaker.paths import CONFIG_PATH
 import click
 from caretaker.cli.formatters import format_stats, print_error
 
@@ -27,7 +28,7 @@ def stats_cmd():
         from pathlib import Path
         import json
 
-        config_path = Path(__file__).parent.parent.parent.parent.parent / "config.json"
+        config_path = CONFIG_PATH
         with open(config_path) as f:
             config = json.load(f)
 

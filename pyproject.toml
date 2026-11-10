@@ -7,18 +7,18 @@ requires-python = ">=3.12"
 dependencies = [
     # ── Phase 1 core ──────────────────────────────────────────
     "anthropic>=0.97.0",
-    "fastmcp>=3.2.4",
+    "fastmcp>=4.1.7",
     "pydantic>=2.13.3",
 
     # ── Phase 2 intelligence ──────────────────────────────────
     "chromadb>=0.6.0",
-    "sentence-transformers>=3.0.0",
+    "sentence-transformers>=6.2.0",
     "spacy>=3.7.0",
 
     # ── Phase 3 CLI + scheduling + cloud + encryption ─────────
     "click>=8.1.0",
     "apscheduler>=3.10.0",
-    "cryptography>=42.0.0",
+    "cryptography>=50.0.2",
     "supabase>=2.0.0",
 ]
 
@@ -52,6 +52,7 @@ packages = ["src/caretaker"]
 pythonpath   = ["src"]
 testpaths    = ["tests"]
 asyncio_mode = "auto"
+cache_dir    = "public/cache/pytest"
 addopts = "-s -v"
 
 # ── Ruff (optional linting) ────────────────────────────────────────────────────
@@ -65,3 +66,8 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.1.0",
 ]
+
+[tool.uv]
+# Security floors for transitive deps: aiohttp comes via chromadb → kubernetes,
+# opentelemetry-api via chromadb and mcp. Without these, uv keeps older locked versions.
+constraint-dependencies = ["aiohttp>=3.14.4", "opentelemetry-api>=1.45.1"]
