@@ -72,7 +72,7 @@ class Compressor:
         try:
             import anthropic
         except ImportError:
-            raise RuntimeError("anthropic SDK not installed. Run: pip install anthropic")
+            raise RuntimeError("anthropic SDK not installed. Install the extra: pip install 'caretaker-mcp[anthropic]'")
 
         template = get_template(memory_type)
         api_key = self.config.get("anthropic_api_key", "")

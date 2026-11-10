@@ -113,7 +113,13 @@ class VectorDB:
     def initialize(self):
         """Connect to ChromaDB and get/create collection."""
         try:
-            import chromadb
+            try:
+                import chromadb
+            except ImportError:
+                raise RuntimeError(
+                    "semantic search is not installed (keyword search is used instead). "
+                    "Install the extra: pip install 'caretaker-mcp[semantic]'"
+                ) from None
 
             self._embedding_fn = _build_embedding_function()
 
@@ -132,7 +138,10 @@ class VectorDB:
             )
 
         except Exception as e:
-            logger.error(f"[VectorDB] Initialization failed: {e}")
+            if "semantic search is not installed" in str(e):
+                logger.info(f"[VectorDB] {e}")   # expected on the core install
+            else:
+                logger.error(f"[VectorDB] Initialization failed: {e}")
             raise
 
     def upsert(
@@ -229,6 +238,38 @@ class VectorDB:
         if self._collection:
             self._collection.delete(ids=[memory_id])
             logger.debug(f"[VectorDB] Deleted memory_id={memory_id}")
+
+    def get(self, memory_id: str) -> Optional[Dict]:
+        """Return {"memory_id", "short"} if the memory is indexed, else None."""
+        if not self._collection:
+            raise RuntimeError("VectorDB not initialized. Call initialize() first.")
+        result = self._collection.get(ids=[memory_id], include=["documents"])
+        if result and result.get("ids"):
+            documents = result.get("documents") or [""]
+            return {"memory_id": result["ids"][0], "short": documents[0] or ""}
+        return None
+
+    def add(self, memory_id: str, text: str, metadata: Optional[Dict] = None):
+        """
+        Index (or re-index) a memory's SHORT text. Convenience wrapper around
+        upsert() used by the CLI and nightly reindex; metadata may contain
+        "type"/"memory_type", "temperature", "keywords", "importance_score".
+        """
+        metadata = metadata or {}
+        keywords = metadata.get("keywords") or []
+        if isinstance(keywords, str):
+            keywords = [k.strip() for k in keywords.split(",") if k.strip()]
+        self.upsert(
+            memory_id=memory_id,
+            short=text,
+            keywords=keywords,
+            temperature=metadata.get("temperature") or "WARM",
+            memory_type=metadata.get("type") or metadata.get("memory_type") or "LEARNING",
+            importance_score=float(metadata.get("importance_score", 0.5)),
+        )
+
+    # Same operation — Chroma upsert both inserts and replaces.
+    update = add
 
     def count(self) -> int:
         return self._collection.count() if self._collection else 0

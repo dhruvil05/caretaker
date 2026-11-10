@@ -87,7 +87,7 @@ def _load_aesgcm():
     except ImportError:
         raise ImportError(
             "[Encryptor] 'cryptography' package not installed. "
-            "Run: uv add cryptography"
+            "Install the extra: pip install 'caretaker-mcp[cloud]'"
         )
     return AESGCM
 

@@ -2,7 +2,7 @@
   "_comment": "Caretaker Config — Phase 1 + Phase 2 + Phase 3 fields",
 
   "_comment_identity": "──── User Identity ────",
-  "user_handle": "Dhruvil",
+  "user_handle": "",
 
   "_comment_scoring": "──── Phase 1+2 — Memory scoring thresholds ────",
   "importance_threshold": 0.4,
@@ -29,8 +29,8 @@
     "warm_to_cold_days": 14
   },
 
-  "_comment_compression": "──── Phase 2 — Compression ────\nSet compression_model to 'local' for free spaCy+TextRank.\nSet to 'claude-haiku-4-5-20251001' for paid Haiku API.",
-  "compression_model": "claude-haiku-4-5-20251001",
+  "_comment_compression": "──── Phase 2 — Compression ────\n'local' (default): free spaCy+TextRank, everything stays on this device.\n'claude-haiku-4-5-20251001': better summaries, but memory text is sent to Anthropic's API (needs anthropic_api_key).",
+  "compression_model": "local",
   "anthropic_api_key": "",
   "long_message_threshold_tokens": 400,
   "max_short_tokens": 60,

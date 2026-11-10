@@ -519,11 +519,13 @@ class NightlyMaintenance:
             reindexed_count = 0
 
             for mem in candidates:
-                # Check if already in ChromaDB
+                # Skip if already indexed with the current SHORT text. Memories
+                # edited (e.g. in the dashboard) or restored since the last run
+                # are re-embedded here, so SQLite stays the source of truth.
                 try:
                     existing = self.vector_db.get(mem["id"])
-                    if existing:
-                        continue  # Already indexed — skip
+                    if existing and existing.get("short") == mem["short"]:
+                        continue
                 except Exception:
                     pass  # Not found — needs reindex
 

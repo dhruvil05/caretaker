@@ -50,7 +50,7 @@ def _load_config() -> dict:
 
 
 def _get_core_identity(config: dict) -> str:
-    user_handle = config.get("user_handle", "User")
+    user_handle = _safe_text(config.get("user_handle"), 40) or "User"
 
     with get_connection() as conn:
         personal = conn.execute(

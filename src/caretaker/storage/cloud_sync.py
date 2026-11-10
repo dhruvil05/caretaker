@@ -116,7 +116,7 @@ class CloudSync:
         except ImportError:
             logger.error(
                 "[CloudSync] 'supabase' package not installed. "
-                "Run: uv add supabase"
+                "Install the extra: pip install 'caretaker-mcp[cloud]'"
             )
             return False
         except Exception as e:

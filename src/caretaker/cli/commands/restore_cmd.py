@@ -9,7 +9,7 @@ Usage:
     caretaker restore <id>
 """
 
-from caretaker.paths import CONFIG_PATH, chromadb_dir
+from caretaker.paths import load_config, chromadb_dir
 import click
 from caretaker.cli.formatters import (
     print_success, print_error, print_info, print_warning,
@@ -57,9 +57,7 @@ def restore_cmd(memory_id):
             from pathlib import Path
             import json
 
-            config_path = CONFIG_PATH
-            with open(config_path) as f:
-                config = json.load(f)
+            config = load_config()
 
             chromadb_path = str(chromadb_dir(config))
             vdb = VectorDB(persist_directory=chromadb_path)

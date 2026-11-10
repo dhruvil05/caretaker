@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Caretaker Dashboard</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.6 2.6L16 9.6"/></svg>
+      <span>Caretaker</span>
+    </div>
+    <nav class="tabs" aria-label="Sections">
+      <a href="#/overview" data-route="overview">Overview</a>
+      <a href="#/memories" data-route="memories">Memories</a>
+      <a href="#/activity" data-route="activity">Activity</a>
+    </nav>
+    <div class="live" id="live-status" data-state="idle">
+      <span class="live-dot" aria-hidden="true"></span>
+      <span class="live-text">Connecting…</span>
+      <button class="icon-btn" id="refresh-btn" type="button" aria-label="Refresh now" title="Refresh now">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
+      </button>
+    </div>
+    <div class="local-badge" title="All data is read from this computer">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+      <span>On this device</span>
+    </div>
+  </header>
+
+  <main id="view" tabindex="-1" aria-live="polite">
+    <p class="muted loading">Loading…</p>
+  </main>
+
+  <div id="tooltip" class="tooltip" role="status" hidden></div>
+</body>
+</html>

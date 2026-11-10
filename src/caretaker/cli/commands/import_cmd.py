@@ -9,7 +9,7 @@ Usage:
     caretaker import backup.json --skip-existing
 """
 
-from caretaker.paths import CONFIG_PATH, chromadb_dir
+from caretaker.paths import load_config, chromadb_dir
 import click
 import json
 from pathlib import Path
@@ -95,9 +95,7 @@ def import_cmd(input_file, skip_existing, force):
             from caretaker.storage.vector_db import VectorDB
             import json as _json
 
-            config_path = CONFIG_PATH
-            with open(config_path) as f:
-                config = _json.load(f)
+            config = load_config()
 
             chromadb_path = str(chromadb_dir(config))
             vdb = VectorDB(persist_directory=chromadb_path)
