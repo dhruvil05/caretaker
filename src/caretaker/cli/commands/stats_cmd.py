@@ -6,6 +6,7 @@ Usage:
     caretaker stats
 """
 
+from caretaker.paths import load_config
 import click
 from caretaker.cli.formatters import format_stats, print_error
 
@@ -27,9 +28,7 @@ def stats_cmd():
         from pathlib import Path
         import json
 
-        config_path = Path(__file__).parent.parent.parent.parent.parent / "config.json"
-        with open(config_path) as f:
-            config = json.load(f)
+        config = load_config()
 
         maintenance_time = config.get("maintenance_time", "02:00")
         scheduler_status = {

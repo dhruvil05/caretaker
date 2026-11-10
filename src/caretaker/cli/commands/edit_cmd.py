@@ -11,6 +11,7 @@ Usage:
     caretaker edit <id> --field full
 """
 
+from caretaker.paths import load_config, chromadb_dir
 import click
 import tempfile
 import subprocess
@@ -94,31 +95,33 @@ def edit_cmd(memory_id, field):
         or ("notepad" if os.name == "nt" else "nano")
     )
 
+    # The temp file holds the memory's plaintext — always delete it, whatever happens.
     try:
-        subprocess.run([editor, tmp_path], check=True)
-    except FileNotFoundError:
-        # Try fallback editors
-        for fallback in ("nano", "vim", "vi", "notepad"):
-            try:
-                subprocess.run([fallback, tmp_path], check=True)
-                break
-            except FileNotFoundError:
-                continue
-        else:
-            print_error(
-                f"No editor found. Set EDITOR environment variable. "
-                f"Temp file at: {tmp_path}"
-            )
+        try:
+            subprocess.run([editor, tmp_path], check=True)
+        except FileNotFoundError:
+            # Try fallback editors
+            for fallback in ("nano", "vim", "vi", "notepad"):
+                try:
+                    subprocess.run([fallback, tmp_path], check=True)
+                    break
+                except FileNotFoundError:
+                    continue
+            else:
+                print_error("No editor found. Set the EDITOR environment variable.")
+                return
+        except subprocess.CalledProcessError:
+            print_warning("Editor exited with error. Changes not saved.")
             return
-    except subprocess.CalledProcessError:
-        print_warning("Editor exited with error. Changes not saved.")
-        os.unlink(tmp_path)
-        return
 
-    # Read edited content
-    with open(tmp_path, "r", encoding="utf-8") as f:
-        edited = f.read()
-    os.unlink(tmp_path)
+        # Read edited content
+        with open(tmp_path, "r", encoding="utf-8") as f:
+            edited = f.read()
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
     if edited.strip() == original_content.strip():
         print_info("No changes detected. Memory unchanged.")
@@ -165,11 +168,9 @@ def edit_cmd(memory_id, field):
             from pathlib import Path
             import json
 
-            config_path = Path(__file__).parent.parent.parent.parent.parent / "config.json"
-            with open(config_path) as f:
-                config = json.load(f)
+            config = load_config()
 
-            chromadb_path = config.get("database", {}).get("chromadb_path", "data/chromadb")
+            chromadb_path = str(chromadb_dir(config))
             vdb = VectorDB(persist_directory=chromadb_path)
             vdb.initialize()
             vdb.update(

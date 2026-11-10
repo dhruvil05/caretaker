@@ -11,6 +11,7 @@ Usage:
     caretaker config set user_handle Dhruvil
 """
 
+from caretaker.paths import config_path, read_config_file, write_config_file
 import click
 import json
 from pathlib import Path
@@ -19,17 +20,14 @@ from caretaker.cli.formatters import (
     BOLD, GREY, RESET, CYAN, GREEN
 )
 
-CONFIG_PATH = Path(__file__).parent.parent.parent.parent.parent / "config.json"
 
 
 def _load_config() -> dict:
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+    return read_config_file()
 
 
 def _save_config(config: dict):
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
+    write_config_file(config)
 
 
 def _format_value(key: str, val) -> str:
@@ -66,7 +64,7 @@ def config_show():
         return
 
     print(f"\n{BOLD}{'═' * 50}{RESET}")
-    print(f"  {BOLD}CARETAKER CONFIG{RESET}  {GREY}{CONFIG_PATH}{RESET}")
+    print(f"  {BOLD}CARETAKER CONFIG{RESET}  {GREY}{config_path()}{RESET}")
     print(f"{BOLD}{'═' * 50}{RESET}")
 
     for key, val in config.items():

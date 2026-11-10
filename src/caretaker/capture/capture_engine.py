@@ -1,7 +1,10 @@
 import uuid
 import json
+import logging
 import re
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from caretaker.capture.entity_extractor import extract_entities
 from caretaker.capture.type_classifier import classify_type
@@ -58,7 +61,7 @@ def run_capture(
     classified = classify_type(message)
     # ADD THIS:
     if classified["type"] == "SKIP":
-        print(f"[CAPTURE] Skipped — question or noise.")
+        logger.debug("[CAPTURE] Skipped — question or noise.")
         return {"id": "skipped", "type": "SKIP", "temperature": "COLD"}
     now        = datetime.now(timezone.utc).isoformat()
 
@@ -126,7 +129,7 @@ def run_capture(
         success = save_memory(memory)
 
         if success:
-            print(f"[CAPTURE] Saved memory {memory['id']} | type={memory['type']} | temp={memory['temperature']}")
+            logger.info(f"[CAPTURE] Saved memory {memory['id']} | type={memory['type']} | temp={memory['temperature']}")
 
             # ── Phase 3: embed into ChromaDB immediately so the memory is
             # searchable on the very next retrieval, independent of the async
@@ -148,33 +151,23 @@ def run_capture(
                         importance_score=float(memory.get("importance") or 0.5),
                     )
                 except Exception as e:
-                    print(f"[CAPTURE] VectorDB upsert failed: {e}")
+                    logger.warning(f"[CAPTURE] VectorDB upsert failed: {e}")
 
             # ── Phase 2: enqueue compression if short not yet generated ───
             if compression_queue and not memory.get("short"):
-                import asyncio
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.ensure_future(
-                            compression_queue.enqueue(
-                                memory_id=memory["id"],
-                                full_text=chunk["full_text"],
-                                memory_type=memory["type"],
-                            )
-                        )
-                    else:
-                        loop.run_until_complete(
-                            compression_queue.enqueue(
-                                memory_id=memory["id"],
-                                full_text=chunk["full_text"],
-                                memory_type=memory["type"],
-                            )
-                        )
+                    # FastMCP runs sync tools in a threadpool, while the queue's
+                    # worker lives on the server's background-thread loop.
+                    # submit() is thread-safe and hands the job to that loop.
+                    compression_queue.submit(
+                        memory_id=memory["id"],
+                        full_text=chunk["full_text"],
+                        memory_type=memory["type"],
+                    )
                 except Exception as e:
-                    print(f"[CAPTURE] Compression queue enqueue failed: {e}")
+                    logger.warning(f"[CAPTURE] Compression queue enqueue failed: {e}")
         else:
-            print(f"[CAPTURE] Failed to save memory")
+            logger.error("[CAPTURE] Failed to save memory")
 
         saved_memories.append(memory)
 

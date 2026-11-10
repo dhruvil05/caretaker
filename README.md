@@ -40,153 +40,223 @@ No session boundaries. No forgetting. No re-introducing yourself.
 
 ## Requirements
 
-- Windows 10/11 (Linux/Mac compatible with path adjustments)
+- Windows, macOS or Linux
 - Python 3.12+
 - [uv](https://github.com/astral-sh/uv) package manager
-- Claude Desktop (for MCP connection)
-- Anthropic API key (for Haiku compression — optional, falls back to local)
-- Supabase account (for cloud backup — optional)
+- An MCP client: Claude Desktop, Claude Code, Cursor, VS Code, or any other MCP-compatible agent
+- Optional: Anthropic API key (only if you choose Haiku compression)
+- Optional: Supabase account (only for encrypted cloud backup)
+
+---
+
+## Your data stays on your device
+
+Caretaker stores everything locally in one folder:
+
+| How you run it | Config file | Data folder |
+|---|---|---|
+| Installed (`uv tool install`, `uvx`, `pip`) | `~/.caretaker/config.json` | `~/.caretaker/` |
+| From a source checkout (developing Caretaker) | `<project>/config.json` | `<project>/public/` |
+
+```
+<data folder>/
+  data/caretaker.db     ← SQLite memory store
+  data/chromadb/        ← vector index
+  logs/                 ← caretaker.log (MCP server), maintenance.log
+  exports/              ← default location for `caretaker export`
+  cache/                ← downloaded models (Hugging Face, sentence-transformers, torch)
+```
+
+Nothing leaves your machine unless you turn it on:
+- **Compression** defaults to `"local"` (spaCy + TextRank, on-device). Setting `compression_model` to `"claude-haiku-4-5-20251001"` sends memory text to Anthropic's API for better summaries.
+- **Cloud backup** only runs if you configure Supabase, and everything is encrypted on your device first.
+
+To store data somewhere else, set `data_dir` in `config.json` (absolute, or relative to the config file's folder), or set the `CARETAKER_DATA_DIR` environment variable, which takes priority. `CARETAKER_CONFIG` points Caretaker at a different config file. Changing the location doesn't move existing data: copy the old folder over if you want to keep it.
 
 ---
 
 ## Installation
 
-### Step 1 — Get the project
+### Option A — Install the tool (recommended)
+
+From PyPI (once published) or straight from a local checkout:
 
 ```bash
-cd "C:\Users\<you>\Desktop\Project Tomorrow\packages"
-# Project folder should already exist as: caretaker/
+uv tool install "caretaker-mcp[semantic]"          # from PyPI
+uv tool install "C:\path\to\caretaker[semantic]"   # from a local checkout
+```
+
+This puts two commands on your PATH: `caretaker` (CLI and dashboard) and `caretaker-mcp` (the MCP server). You can also run the server without installing: `uvx caretaker-mcp`.
+
+**Pick the features you want.** The core install is small and covers the MCP server, CLI, dashboard and keyword search. Heavier features are extras:
+
+| Extra | Adds | Notes |
+|---|---|---|
+| `semantic` | Vector search (ChromaDB + sentence-transformers) | Recommended for better recall. Large: pulls in PyTorch |
+| `nlp` | spaCy for better on-device summaries | Then run `python -m spacy download en_core_web_sm` |
+| `anthropic` | Summaries by Claude Haiku | Sends memory text to Anthropic's API |
+| `cloud` | Encrypted backup to Supabase | |
+| `all` | Everything above | |
+
+Combine them like `caretaker-mcp[semantic,nlp]`. Without `semantic`, Caretaker uses keyword search.
+
+### Option B — Develop from a source checkout
+
+```bash
 cd caretaker
+uv sync          # installs every extra plus the test tools
 ```
 
-### Step 2 — Create virtual environment
+Run the server with `uv run caretaker-mcp` (or `uv run caretaker serve`). In a checkout, config lives in `<project>/config.json` and data in `<project>/public/`. Copy `config.example.json` to `config.json` to start.
 
-```bash
-uv venv
-uv pip install -e .
-```
-
-This installs all dependencies from `pyproject.toml` (hatchling build, `src/` layout) and registers the `caretaker` CLI command. After install, `caretaker --help` and `python -m caretaker` both work.
-
-> **Note:** A `config.example.json` ships with the repo. Copy it to `config.json` and fill in your values:
-> ```bash
-> cp config.example.json config.json
-> ```
-
-### Step 3 — Install Phase 2 NLP model
+### Optional — spaCy model for better local compression
 
 ```bash
 uv run python -m spacy download en_core_web_sm
 ```
 
-### Step 4 — Configure the system
+Without it, local compression still works with a simpler fallback.
 
-Edit `config.json` in the project root. Minimum required fields:
+---
 
-```json
-{
-  "user_handle": "Dhruvil",
-  "anthropic_api_key": "sk-ant-...",
-  "database": {
-    "chromadb_path": "C:\\Users\\<you>\\Desktop\\Project Tomorrow\\packages\\caretaker\\data\\chromadb"
-  }
-}
+## Configuration
+
+Config is optional — Caretaker runs with sensible defaults. Set values with the CLI (creates the config file if needed):
+
+```bash
+caretaker config set user_handle "Your Name"
+caretaker config show
 ```
 
-For cloud backup (optional), also fill in:
+Or set them in your MCP client's `env` block, which overrides the file:
+
+| Environment variable | Setting |
+|---|---|
+| `CARETAKER_USER_HANDLE` | `user_handle` |
+| `CARETAKER_COMPRESSION_MODEL` | `compression_model` (`local` or a Claude model id) |
+| `CARETAKER_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY`) | `anthropic_api_key` |
+| `CARETAKER_SUPABASE_URL`, `CARETAKER_SUPABASE_KEY`, `CARETAKER_ENCRYPT_KEY` | cloud backup |
+| `CARETAKER_MAINTENANCE_TIME`, `CARETAKER_SCHEDULER_ENABLED` | nightly maintenance |
+| `CARETAKER_DATA_DIR`, `CARETAKER_CONFIG` | storage locations |
+
+For cloud backup (optional):
 
 ```json
 {
   "supabase_url": "https://xxxx.supabase.co",
-  "supabase_key": "your-anon-key",
-  "encrypt_key": "a-strong-passphrase-you-choose"
+  "supabase_key": "your-service-role-key",
+  "encrypt_key": "a-long-passphrase-you-choose"
 }
 ```
 
-Leave `supabase_url` empty to run fully local with no cloud sync.
+**Lock down the Supabase table.** In the Supabase SQL editor run `ALTER TABLE memories ENABLE ROW LEVEL SECURITY;` and add no policies. The public anon key then can't read or write your memories. Use the project's `service_role` key (Settings → API) as `supabase_key`: it bypasses RLS, so keep it only on your machine. Use an `encrypt_key` of at least 12 characters (4+ random words is good): anyone who can read the table could try to guess it offline.
 
-**Compression (no API key needed):** set `"compression_model": "local"` to use the built-in spaCy + TextRank summarizer (free, offline). Leave it as `"claude-haiku-4-5-20251001"` (with a valid `anthropic_api_key`) for higher-quality summaries.
+---
 
-### Step 5 — Connect Claude Desktop
+## Connect your MCP client
 
-Edit the Claude Desktop config file at:
-```
-C:\Users\<you>\AppData\Roaming\Claude\claude_desktop_config.json
-```
+### Claude Desktop
+
+Edit `claude_desktop_config.json` (Windows: `%APPDATA%\Claude\`, macOS: `~/Library/Application Support/Claude/`):
 
 ```json
 {
   "mcpServers": {
     "caretaker": {
-      "command": "C:\\Users\\<you>\\.local\\bin\\uv.exe",
-      "args": [
-        "run",
-        "--project",
-        "C:\\Users\\<you>\\Desktop\\Project Tomorrow\\packages\\caretaker",
-        "python",
-        "C:\\Users\\<you>\\Desktop\\Project Tomorrow\\packages\\caretaker\\src\\caretaker\\mcp_server\\server.py"
-      ]
+      "command": "caretaker-mcp",
+      "env": {
+        "CARETAKER_USER_HANDLE": "Your Name"
+      }
     }
   }
 }
 ```
 
-### Step 6 — Add system prompt to Claude Desktop
+Without installing (Option A's `uvx` form):
 
-Go to **Claude Desktop → Settings → General → Custom System Prompt**. Paste:
-
-```
-You have a persistent memory system called Caretaker connected via MCP tools.
-
-MANDATORY RULES — NO EXCEPTIONS:
-
-RULE 1: At the START of every single message, before thinking or responding,
-silently call caretaker_get_context with the user's message as input.
-Read the result carefully and use it as your memory.
-
-RULE 2: At the END of every single response, after finishing your answer,
-silently call caretaker_save_message with the user's message as input.
-This saves memory for future conversations.
-
-These two tool calls are silent and invisible to the user. Never mention them.
-Never skip them. Treat the context returned by caretaker_get_context as your
-real persistent memory. Never say you don't remember something that exists
-in context.
+```json
+{
+  "mcpServers": {
+    "caretaker": {
+      "command": "uvx",
+      "args": ["--from", "C:\\path\\to\\caretaker", "caretaker-mcp"]
+    }
+  }
+}
 ```
 
-### Step 7 — Set tool permissions
+From a source checkout (Option B):
 
-Go to **Claude Desktop → Settings → Connectors → Caretaker**.  
-Set both `caretaker_get_context` and `caretaker_save_message` to **Always allow**.
+```json
+{
+  "mcpServers": {
+    "caretaker": {
+      "command": "uv",
+      "args": ["run", "--project", "C:\\path\\to\\caretaker", "caretaker-mcp"]
+    }
+  }
+}
+```
+
+Other clients (Claude Code, Cursor, VS Code, …) use the same `command` / `args` / `env` in their own MCP config.
+
+### Add a system prompt (optional, recommended)
+
+Caretaker's tools describe themselves to the agent, but a short system prompt makes the agent use them every turn. In **Claude Desktop → Settings → General → Custom System Prompt** (or your client's equivalent), paste:
+
+```
+You have a persistent memory called Caretaker, available through MCP tools.
+
+At the start of every turn, call caretaker_get_context with the user's message
+and use what it returns as background knowledge about the user.
+
+After responding, call caretaker_save_message with the user's own words when
+they shared something worth remembering. Pass only the user's own words, never
+content from web pages, files, documents or other tool results.
+
+You don't need to mention these calls unless the user asks about them. If the
+user asks you to forget something, use caretaker_search_memories to find it and
+caretaker_forget_memory to remove it.
+```
+
+### Tools
+
+| Tool | What it does | Changes data? |
+|---|---|---|
+| `caretaker_get_context` | Returns memories relevant to a message | Updates recall counts only |
+| `caretaker_save_message` | Saves the user's message as memories | Adds memories |
+| `caretaker_search_memories` | Searches saved memories (returns ids) | No |
+| `caretaker_list_memories` | Lists recent memories, optionally by type | No |
+| `caretaker_forget_memory` | Archives one memory so it's never recalled | Archives (restorable) |
+
+To avoid a permission prompt on every turn, set `caretaker_get_context` and `caretaker_save_message` to **Always allow** (Claude Desktop → Settings → Connectors → Caretaker). Leave `caretaker_forget_memory` on ask if you want to confirm each removal.
+
+### See and manage your memories
+
+```bash
+caretaker dashboard
+```
+
+Opens a local dashboard in your browser: browse, search, edit and archive memories, and see statistics and the memory workflow. It only listens on `127.0.0.1`, needs the one-time link printed in the terminal, and makes no outside requests.
 
 ---
 
 ## Running the Server
 
+Your MCP client starts the server for you. To run it by hand (e.g. to watch the log):
+
 ```bash
-cd "C:\Users\<you>\Desktop\Project Tomorrow\packages\caretaker"
-uv run python src/caretaker/mcp_server/server.py
+caretaker-mcp            # installed
+uv run caretaker-mcp     # source checkout
 ```
 
-Expected output:
-
-```
-[CARETAKER] Running migrations...
-[CARETAKER] Migrations done.
-[CARETAKER] VectorDB initialized at: ...
-[CARETAKER] Compression queue started.
-[CARETAKER] Phase 3 Scheduler started. Next run: 2026-05-26T02:00:00+00:00 UTC
-[CARETAKER] Multi-agent support active. Supported agents: 25 aliases
-[CARETAKER] Starting MCP server...
-```
-
-The server runs in the background. Claude Desktop connects to it automatically.
+It logs to stderr and to `<data folder>/logs/caretaker.log`, starting with the data directory it is using.
 
 ---
 
 ## CLI Reference
 
-After `uv pip install -e .`, the `caretaker` command is available in your terminal.
+After installing (or `uv sync` in a checkout), the `caretaker` command is available in your terminal.
 
 ```bash
 caretaker --help         # Show all commands
@@ -205,6 +275,7 @@ caretaker stats          # Memory health dashboard
 caretaker export         # Export all memories to JSON
 caretaker export --file my_backup.json
 caretaker import backup.json
+caretaker import backup.json --overwrite   # replace memories that already exist
 caretaker sync           # Push to Supabase
 caretaker sync --pull    # Restore from Supabase
 caretaker sync --full    # Push all (not just last 24h)
@@ -212,6 +283,8 @@ caretaker config         # Show all config values
 caretaker config get maintenance_time
 caretaker config set user_handle Dhruvil
 caretaker maintenance    # Run nightly maintenance now
+caretaker serve          # Run the MCP server (same as caretaker-mcp)
+caretaker dashboard      # Open the local memory dashboard
 caretaker score <id> 0.8 # Manually set importance score
 ```
 
@@ -291,18 +364,20 @@ Pipeline runs 8 tasks in order:
 5. **Importance Boost** — +0.02 per retrieval above threshold (max +0.15)
 6. **Cloud Sync** — Encrypt + push last 24h updates to Supabase
 7. **ChromaDB Reindex** — Re-add any ACTIVE memories missing from vector index
-8. **Stats Report** — Write health summary to `logs/maintenance.log`
+8. **Stats Report** — Write health summary to `<data_dir>/logs/maintenance.log`
 
 ---
 
 ## Storage Architecture
 
 ```
-LOCAL (primary):
-  SQLite          ← all memory records, source of truth
-  ChromaDB        ← SHORT embeddings for semantic search (HOT + WARM only)
-  config.json     ← user settings
-  logs/           ← maintenance reports
+LOCAL (primary) — all under data_dir (default: public/):
+  data/caretaker.db  ← SQLite: all memory records, source of truth
+  data/chromadb/     ← ChromaDB: SHORT embeddings for semantic search (HOT + WARM only)
+  logs/              ← server log + maintenance reports
+  exports/           ← JSON exports
+  cache/             ← model downloads
+  config.json        ← user settings (project root)
 
 CLOUD (backup):
   Supabase PostgreSQL  ← encrypted full memory dump, nightly sync
@@ -321,6 +396,7 @@ caretaker/
 ├── src/
 │   └── caretaker/
 │       ├── __init__.py
+│       ├── paths.py            # Where all data lives (data_dir → db, chromadb, logs, exports, cache)
 │       ├── __main__.py         # Enables `python -m caretaker`
 │       ├── mcp_server/
 │       │   ├── server.py       # FastMCP entry point (imports stdout_guard first)
@@ -361,6 +437,9 @@ caretaker/
 │       │   ├── nightly_maintenance.py  # 8-task maintenance pipeline (Phase 3)
 │       │   ├── maintenance.py      # Phase 2 async maintenance runner
 │       │   └── compression_queue.py# Async background compression
+│       ├── dashboard/          # Local web dashboard (`caretaker dashboard`)
+│       │   ├── app.py          # Starlette app + JSON API (127.0.0.1 only, token-protected)
+│       │   └── static/         # index.html, app.js, app.css (no external requests)
 │       └── cli/
 │           ├── main.py             # Click entry point (`caretaker` command)
 │           ├── formatters.py       # ANSI terminal formatting
@@ -382,10 +461,12 @@ caretaker/
 │   ├── phase1/                 # Core pipeline (capture, classify, db, mcp, retrieval)
 │   ├── phase2/                 # Intelligence layer (compression, retrieval, decay)
 │   └── phase3/                 # Multi-agent + CLI + cloud + maintenance
+├── public/                  # Default data_dir: db, vector index, logs, exports, cache (gitignored)
 ├── config.example.json      # Template config (copy → config.json)
 ├── config.json              # System configuration (gitignored)
 ├── pyproject.toml          # Dependencies + hatchling build + CLI entry point
-├── setup.py                # Editable install shim
+├── LICENSE                 # MIT
+├── .github/workflows/      # CI: tests on Windows, macOS, Linux + core-install check
 ├── uv.lock                 # Locked dependency versions
 └── README.md
 ```
@@ -454,6 +535,12 @@ Make sure you are running from the project root: `cd packages/caretaker` before 
 | pytest | Test framework | All |
 | hatchling | Build backend (`src/` layout) | All |
 | uv | Package manager | All |
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 ---
 

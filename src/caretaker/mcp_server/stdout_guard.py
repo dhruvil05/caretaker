@@ -30,17 +30,41 @@ os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
 os.environ.setdefault("HUGGINGFACE_HUB_VERBOSITY", "error")
-os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", os.environ.get(
-    "SENTENCE_TRANSFORMERS_HOME",
-    os.path.join(os.path.expanduser("~"), ".cache", "sentence_transformers")
-))
+# Model cache locations (HF_HOME, SENTENCE_TRANSFORMERS_HOME, TORCH_HOME) are
+# set to <data_dir>/cache by caretaker/__init__.py → paths.configure_cache_env().
 
-# ── 3. Route ALL logging to stderr ───────────────────────────────────────────
+# ── 3. Route ALL logging to stderr, via a teardown-safe handler ─────────────
+class _SafeStreamHandler(logging.StreamHandler):
+    """
+    Identical to logging.StreamHandler, except it silently drops write
+    failures that happen because the underlying stream (sys.stderr) has
+    already been closed by the OS.
+
+    This happens legitimately during MCP stdio shutdown: when Claude
+    Desktop closes the process's pipes, any thread — including a daemon
+    background thread still finishing up async work — that tries to log
+    afterward hits `ValueError: I/O operation on closed file`. Normally
+    logging.Handler.handleError() re-raises during interpreter teardown,
+    which Python can't process cleanly and dumps as a raw unraisable-
+    exception trace ("lost sys.stderr"). Swallowing this specific,
+    already-torn-down-pipe case is safe: there is no reader left to see
+    the log line anyway, so dropping it loses nothing observable.
+    """
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except (ValueError, OSError):
+            # Stream already closed (pipe torn down by parent process).
+            # Nothing useful can be done — drop silently instead of
+            # crashing interpreter finalization.
+            pass
+
+
 logging.basicConfig(
-    stream=sys.stderr,
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
     force=True,          # override any previous basicConfig calls
+    handlers=[_SafeStreamHandler(sys.stderr)],
 )
 
 # Silence noisy third-party loggers
@@ -90,15 +114,74 @@ class _StderrRedirect:
             model = SentenceTransformer("all-MiniLM-L6-v2")
     """
     def __enter__(self):
-        self._original = sys.stdout
-        sys.stdout = sys.stderr
+        # If the permanent proxy is installed (MCP server mode), text writes
+        # already go to stderr. Swapping sys.stdout here would be actively
+        # harmful: another thread (the MCP stdio transport) may read
+        # sys.stdout.buffer at that moment and bind to stderr for good.
+        self._swapped = not isinstance(sys.stdout, _StdoutTextToStderr)
+        if self._swapped:
+            self._original = sys.stdout
+            sys.stdout = sys.stderr
         return self
 
     def __exit__(self, *_):
-        sys.stdout = self._original
+        if self._swapped:
+            sys.stdout = self._original
 
 
 redirect = _StderrRedirect
+
+
+# ── 5b. Permanent, thread-safe stdout proxy (MCP server mode only) ───────────
+class _StdoutTextToStderr:
+    """
+    Permanent replacement for sys.stdout in the MCP server process.
+
+    - Text writes (print(), library chatter) from ANY thread go to stderr.
+    - `.buffer` still returns the REAL stdout's binary buffer, which is what
+      the MCP stdio transport binds to (mcp.server.stdio wraps
+      sys.stdout.buffer), so JSON-RPC frames still reach the client.
+
+    Unlike redirect(), this never swaps sys.stdout while other threads are
+    running, so there is no window in which the transport can accidentally
+    bind to stderr.
+    """
+    def __init__(self, real_stdout):
+        self._real = real_stdout
+
+    def write(self, s):
+        try:
+            return sys.stderr.write(s)
+        except (ValueError, OSError):
+            return 0
+
+    def writelines(self, lines):
+        for line in lines:
+            self.write(line)
+
+    def flush(self):
+        try:
+            sys.stderr.flush()
+        except (ValueError, OSError):
+            pass
+
+    @property
+    def buffer(self):
+        return self._real.buffer
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def install_stdout_proxy():
+    """
+    Install the permanent stdout proxy. Call once from the MCP server's
+    entry point on the main thread, BEFORE starting any background threads.
+    Not applied at import time, so CLI commands that import this module
+    keep normal stdout behaviour.
+    """
+    if not isinstance(sys.stdout, _StdoutTextToStderr):
+        sys.stdout = _StdoutTextToStderr(sys.stdout)
 
 
 # ── 6. Safe asyncio loop helper ──────────────────────────────────────────────

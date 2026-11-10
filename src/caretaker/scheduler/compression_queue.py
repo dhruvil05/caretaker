@@ -49,11 +49,14 @@ class CompressionQueue:
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=self.MAX_QUEUE_SIZE)
         self._running = False
         self._worker_task: Optional[asyncio.Task] = None
+        # Event loop that owns the queue and the worker (set in start()).
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     async def start(self):
         """Start the background worker. Call once on server startup."""
         if self._running:
             return
+        self._loop = asyncio.get_running_loop()
         self._running = True
         self._worker_task = asyncio.create_task(self._worker_loop())
         logger.info("[CompressionQueue] Worker started.")
@@ -69,16 +72,46 @@ class CompressionQueue:
                 pass
         logger.info("[CompressionQueue] Worker stopped.")
 
-    async def enqueue(self, memory_id: str, full_text: str, memory_type: str):
+    def submit(self, memory_id: str, full_text: str, memory_type: str) -> None:
         """
-        Add a compression job to the queue.
-        Non-blocking — if queue is full, log warning and skip.
+        Thread-safe, synchronous way to add a job. Safe to call from any
+        thread — e.g. an MCP tool running in FastMCP's sync-tool threadpool —
+        while the worker runs on a different thread's event loop.
+
+        asyncio.Queue is not thread-safe, so when called from a thread other
+        than the owning loop's, the put is marshalled onto that loop with
+        call_soon_threadsafe (which also wakes the loop immediately).
         """
         job = CompressionJob(
             memory_id=memory_id,
             full_text=full_text,
             memory_type=memory_type,
         )
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            # Worker never started (e.g. tests / sync context) — no other
+            # loop is touching the queue, so a direct put is safe.
+            self._put_job(job)
+            return
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is loop:
+            self._put_job(job)
+        else:
+            loop.call_soon_threadsafe(self._put_job, job)
+
+    async def enqueue(self, memory_id: str, full_text: str, memory_type: str):
+        """
+        Add a compression job to the queue (async API, kept for callers
+        already on the owning loop). Thread-safe via submit().
+        """
+        self.submit(memory_id, full_text, memory_type)
+
+    def _put_job(self, job: CompressionJob) -> None:
+        """Put a job on the queue. Must run on the owning loop's thread."""
+        memory_id = job.memory_id
         try:
             self._queue.put_nowait(job)
             logger.debug(f"[CompressionQueue] Enqueued job for memory_id={memory_id}")
@@ -112,8 +145,10 @@ class CompressionQueue:
         try:
             logger.debug(f"[CompressionQueue] Processing memory_id={job.memory_id}, type={job.memory_type}")
 
-            # Run compression in thread pool to avoid blocking event loop
-            loop = asyncio.get_event_loop()
+            # Run compression in thread pool to avoid blocking event loop.
+            # Safe here: we're always called from inside the running worker
+            # task, so get_running_loop() is guaranteed to succeed.
+            loop = asyncio.get_running_loop()
             short, keywords = await loop.run_in_executor(
                 None,
                 self.compressor.compress,

@@ -9,7 +9,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 import pytest
 import os
 
-TEST_DB = Path(__file__).parent.parent.parent / "caretaker_test.db"
+import tempfile
+TEST_DB = Path(tempfile.mkdtemp(prefix="caretaker-tests-")) / "caretaker_test.db"
 
 import caretaker.storage.local_db as db_module
 db_module.DB_PATH = TEST_DB

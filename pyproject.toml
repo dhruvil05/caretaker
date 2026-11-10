@@ -1,40 +1,51 @@
 [project]
-name = "caretaker"
-version = "0.3.2"
-description = "Universal agent memory layer — local-first, agent-agnostic, cloud-backed"
+name = "caretaker-mcp"
+version = "0.4.0"
+description = "Persistent, local-first memory for AI agents over MCP — one memory shared by Claude, ChatGPT, Cursor and any MCP client"
+readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Dhruvil Dvij" }]
+keywords = ["mcp", "memory", "ai-agents", "claude", "llm", "local-first"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 
+# Core install: MCP server, CLI, local dashboard, nightly maintenance and
+# keyword search. Everything heavy is an opt-in extra below.
 dependencies = [
-    # ── Phase 1 core ──────────────────────────────────────────
-    "anthropic>=0.97.0",
-    "fastmcp>=3.2.4",
+    "fastmcp>=4.1.7",
     "pydantic>=2.13.3",
-
-    # ── Phase 2 intelligence ──────────────────────────────────
-    "chromadb>=0.6.0",
-    "sentence-transformers>=3.0.0",
-    "spacy>=3.7.0",
-
-    # ── Phase 3 CLI + scheduling + cloud + encryption ─────────
     "click>=8.1.0",
     "apscheduler>=3.10.0",
-    "cryptography>=42.0.0",
-    "supabase>=2.0.0",
+    "starlette>=1.10.0",   # local dashboard (`caretaker dashboard`)
+    "uvicorn>=0.46.0",
 ]
 
 [project.optional-dependencies]
-# Run: uv add caretaker[dev]
-dev = [
-    "pytest>=9.0.3",
-    "pytest-asyncio>=0.24.0",
-    "pytest-cov>=5.0.0",
-]
+# Vector search (better recall). Large: pulls in PyTorch.
+semantic = ["chromadb>=1.5.9", "sentence-transformers>=6.2.0"]
+# Better on-device summaries (also run: python -m spacy download en_core_web_sm)
+nlp = ["spacy>=3.7.0"]
+# Summaries by Claude Haiku (sends memory text to Anthropic's API)
+anthropic = ["anthropic>=0.97.0"]
+# Encrypted backup to Supabase
+cloud = ["supabase>=2.0.0", "cryptography>=50.0.2"]
+all = ["caretaker-mcp[semantic,nlp,anthropic,cloud]"]
 
-# ── CLI entry point ────────────────────────────────────────────────────────────
-# After: uv pip install -e .
-# Run:   caretaker --help
+[project.urls]
+Repository = "https://github.com/dhruvil05/caretaker"
+Issues = "https://github.com/dhruvil05/caretaker/issues"
+
 [project.scripts]
 caretaker = "caretaker.cli.main:main"
+caretaker-mcp = "caretaker.mcp_server.server:main"
 
 # ── Build system ───────────────────────────────────────────────────────────────
 [build-system]
@@ -46,12 +57,11 @@ packages = ["src/caretaker"]
 
 # ── Pytest ─────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
-# Point at src/ (the package layout dir) rather than the project root.
-# The project root has a stray __init__.py that would otherwise shadow the
-# real `caretaker` package (src/caretaker) when tests do `import caretaker`.
+# Point at src/ (the package layout dir) so tests import the real package.
 pythonpath   = ["src"]
 testpaths    = ["tests"]
 asyncio_mode = "auto"
+cache_dir    = "public/cache/pytest"
 addopts = "-s -v"
 
 # ── Ruff (optional linting) ────────────────────────────────────────────────────
@@ -59,9 +69,16 @@ addopts = "-s -v"
 line-length    = 100
 target-version = "py312"
 
+# Development: `uv sync` installs the project with every extra plus test tools.
 [dependency-groups]
 dev = [
+    "caretaker-mcp[all]",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.1.0",
 ]
+
+[tool.uv]
+# Security floors for transitive deps: aiohttp comes via chromadb → kubernetes,
+# opentelemetry-api via chromadb and mcp. Without these, uv keeps older locked versions.
+constraint-dependencies = ["aiohttp>=3.14.4", "opentelemetry-api>=1.45.1"]

@@ -9,18 +9,33 @@ Uses AES-256-GCM (authenticated encryption):
   - 256-bit key
   - Random 96-bit nonce per encrypt call
   - Authentication tag prevents tampering
-  - Output format: base64(nonce + ciphertext + tag)
+  - Associated data binds each ciphertext to its memory id + field name,
+    so ciphertext can't be moved to another record or field unnoticed
+
+Blob formats:
+  - v2 (current):  "v2:" + base64(nonce + ciphertext + tag)
+                   key = PBKDF2-HMAC-SHA256, 600,000 iterations,
+                   associated data = "caretaker|<memory id>|<field>"
+  - v1 (legacy):   base64(nonce + ciphertext + tag), no prefix
+                   key = PBKDF2-HMAC-SHA256, 100,000 iterations, no associated data
+                   Still decrypted so existing cloud backups keep working;
+                   every push re-encrypts in v2.
 
 Key derivation:
   - User sets encrypt_key in config.json as a plain passphrase
   - We derive a 32-byte key from it using PBKDF2-HMAC-SHA256
-  - Fixed salt per installation (stored in config or derived from supabase_url)
+  - Salt = SHA-256 of supabase_url: unique per Supabase project, and
+    recoverable on a new machine from config alone (salts need not be secret)
 """
 
 import base64
 import hashlib
+import json
+import logging
 import os
-from typing import Union
+from typing import Optional, Union
+
+logger = logging.getLogger(__name__)
 
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -28,33 +43,53 @@ from typing import Union
 NONCE_SIZE  = 12   # GCM standard 96-bit nonce
 KEY_SIZE    = 32   # AES-256 = 32 bytes
 TAG_SIZE    = 16   # GCM auth tag
-PBKDF2_ITER = 100_000
+
+PBKDF2_ITER        = 600_000   # v2 — OWASP recommendation for PBKDF2-HMAC-SHA256
+PBKDF2_ITER_LEGACY = 100_000   # v1 — only used to read old blobs
+BLOB_PREFIX_V2     = "v2:"
+
+MIN_PASSPHRASE_LEN = 12
+
+ENCRYPTED_FIELDS = ("short", "full", "keywords", "subtype", "source_msg")
 
 
 # ── Key derivation ─────────────────────────────────────────────────────────────
 
-def _derive_key(passphrase: str, salt: bytes) -> bytes:
-    """
-    Derive a 32-byte AES key from a user passphrase using PBKDF2-HMAC-SHA256.
-    Salt should be consistent per installation (derived from supabase_url or fixed).
-    """
+def _derive_key(passphrase: str, salt: bytes, iterations: int = PBKDF2_ITER) -> bytes:
+    """Derive a 32-byte AES key from a user passphrase using PBKDF2-HMAC-SHA256."""
     return hashlib.pbkdf2_hmac(
         "sha256",
         passphrase.encode("utf-8"),
         salt,
-        PBKDF2_ITER,
+        iterations,
         dklen=KEY_SIZE,
     )
 
 
 def _get_salt(config: dict) -> bytes:
     """
-    Generate a consistent salt for this installation.
-    Uses supabase_url as entropy if available, else falls back to fixed salt.
-    This is NOT a secret — it just adds uniqueness per installation.
+    Consistent salt for this installation.
+    Uses supabase_url (unique per Supabase project) if available, else a fixed salt.
+    This is NOT a secret — it just makes keys differ between installations.
     """
-    salt_source = config.get("supabase_url", "caretaker-default-salt-v1")
+    salt_source = config.get("supabase_url") or "caretaker-default-salt-v1"
     return hashlib.sha256(salt_source.encode("utf-8")).digest()
+
+
+def field_aad(memory_id: str, field: str) -> bytes:
+    """Associated data binding a ciphertext to one memory id + field."""
+    return f"caretaker|{memory_id}|{field}".encode("utf-8")
+
+
+def _load_aesgcm():
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except ImportError:
+        raise ImportError(
+            "[Encryptor] 'cryptography' package not installed. "
+            "Install the extra: pip install 'caretaker-mcp[cloud]'"
+        )
+    return AESGCM
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -65,8 +100,8 @@ class Encryptor:
 
     Usage:
         enc = Encryptor(config)
-        blob  = enc.encrypt("some text")   # → base64 string
-        plain = enc.decrypt(blob)           # → "some text"
+        blob  = enc.encrypt("some text", aad=b"...")   # → "v2:..." string
+        plain = enc.decrypt(blob, aad=b"...")           # → "some text"
     """
 
     def __init__(self, config: dict):
@@ -76,52 +111,47 @@ class Encryptor:
                 "[Encryptor] encrypt_key is empty in config.json. "
                 "Set a passphrase to enable cloud sync encryption."
             )
-        salt      = _get_salt(config)
-        self._key = _derive_key(passphrase, salt)
-
-    def encrypt(self, plaintext: Union[str, bytes]) -> str:
-        """
-        Encrypt plaintext with AES-256-GCM.
-        Returns base64-encoded string: nonce(12) + ciphertext + tag(16).
-        Raises ImportError if 'cryptography' package is not installed.
-        """
-        try:
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        except ImportError:
-            raise ImportError(
-                "[Encryptor] 'cryptography' package not installed. "
-                "Run: uv add cryptography"
+        if len(passphrase) < MIN_PASSPHRASE_LEN:
+            logger.warning(
+                f"[Encryptor] encrypt_key is shorter than {MIN_PASSPHRASE_LEN} characters. "
+                "Anyone who can read your Supabase table could try to guess it offline — "
+                "use a long passphrase (e.g. 4+ random words)."
             )
+        salt = _get_salt(config)
+        self._key        = _derive_key(passphrase, salt, PBKDF2_ITER)
+        self._legacy_key = _derive_key(passphrase, salt, PBKDF2_ITER_LEGACY)
 
+    def encrypt(self, plaintext: Union[str, bytes], aad: Optional[bytes] = None) -> str:
+        """
+        Encrypt plaintext with AES-256-GCM (v2 format).
+        Returns "v2:" + base64(nonce(12) + ciphertext + tag(16)).
+        """
+        AESGCM = _load_aesgcm()
         if isinstance(plaintext, str):
             plaintext = plaintext.encode("utf-8")
 
-        nonce  = os.urandom(NONCE_SIZE)
-        aesgcm = AESGCM(self._key)
+        nonce = os.urandom(NONCE_SIZE)
+        ciphertext_with_tag = AESGCM(self._key).encrypt(nonce, plaintext, aad)
+        return BLOB_PREFIX_V2 + base64.b64encode(nonce + ciphertext_with_tag).decode("utf-8")
 
-        # encrypt() returns ciphertext + appended 16-byte GCM tag
-        ciphertext_with_tag = aesgcm.encrypt(nonce, plaintext, associated_data=None)
-
-        # Pack: nonce || ciphertext+tag → base64
-        packed = nonce + ciphertext_with_tag
-        return base64.b64encode(packed).decode("utf-8")
-
-    def decrypt(self, blob: str) -> str:
+    def decrypt(self, blob: str, aad: Optional[bytes] = None) -> str:
         """
-        Decrypt a base64-encoded AES-256-GCM blob produced by encrypt().
-        Returns original plaintext string.
-        Raises ValueError if blob is tampered or key is wrong.
+        Decrypt a blob produced by encrypt() (v2) or by older versions (v1).
+        `aad` must match what was used to encrypt a v2 blob; it is ignored for
+        legacy v1 blobs, which were written without associated data.
+        Raises ValueError if the blob is malformed, tampered, or the key is wrong.
         """
-        try:
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        except ImportError:
-            raise ImportError(
-                "[Encryptor] 'cryptography' package not installed. "
-                "Run: uv add cryptography"
-            )
+        AESGCM = _load_aesgcm()
+        if not isinstance(blob, str):
+            raise ValueError("[Encryptor] Encrypted value is not a string.")
+
+        if blob.startswith(BLOB_PREFIX_V2):
+            key, body, used_aad = self._key, blob[len(BLOB_PREFIX_V2):], aad
+        else:
+            key, body, used_aad = self._legacy_key, blob, None
 
         try:
-            packed = base64.b64decode(blob.encode("utf-8"))
+            packed = base64.b64decode(body.encode("utf-8"), validate=True)
         except Exception as e:
             raise ValueError(f"[Encryptor] Invalid base64 blob: {e}")
 
@@ -131,25 +161,24 @@ class Encryptor:
                 "Expected at least nonce(12) + tag(16) = 28 bytes."
             )
 
-        nonce              = packed[:NONCE_SIZE]
-        ciphertext_with_tag = packed[NONCE_SIZE:]
-
-        aesgcm = AESGCM(self._key)
-
+        nonce, ciphertext_with_tag = packed[:NONCE_SIZE], packed[NONCE_SIZE:]
         try:
-            plaintext_bytes = aesgcm.decrypt(nonce, ciphertext_with_tag, associated_data=None)
+            plaintext_bytes = AESGCM(key).decrypt(nonce, ciphertext_with_tag, used_aad)
         except Exception:
             raise ValueError(
                 "[Encryptor] Decryption failed. "
                 "Key may be wrong or data may be tampered."
             )
 
-        return plaintext_bytes.decode("utf-8")
+        try:
+            return plaintext_bytes.decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise ValueError(f"[Encryptor] Decrypted data is not valid UTF-8: {e}")
 
     def is_available(self) -> bool:
         """Check if cryptography package is installed."""
         try:
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa
+            _load_aesgcm()
             return True
         except ImportError:
             return False
@@ -164,11 +193,17 @@ def encrypt_memory_dict(memory: dict, encryptor: "Encryptor") -> dict:
     so Supabase can index/filter on them without decryption.
 
     Encrypted fields: short, full, keywords, subtype, source_msg
+
+    Raises ValueError if any field cannot be encrypted: a memory is never
+    uploaded with some fields left in plaintext.
     """
-    import json
+    memory_id = memory.get("id")
+    if not memory_id:
+        raise ValueError("[Encryptor] Memory has no id; refusing to encrypt.")
+
     encrypted = dict(memory)  # shallow copy
 
-    for field in ("short", "full", "keywords", "subtype", "source_msg"):
+    for field in ENCRYPTED_FIELDS:
         raw = memory.get(field)
         if raw is None:
             continue
@@ -179,11 +214,12 @@ def encrypt_memory_dict(memory: dict, encryptor: "Encryptor") -> dict:
             raw = str(raw)
 
         try:
-            encrypted[field] = encryptor.encrypt(raw)
+            encrypted[field] = encryptor.encrypt(raw, aad=field_aad(memory_id, field))
         except Exception as e:
-            # Never fail a sync because of one field — leave unencrypted with marker
-            encrypted[field] = raw
-            print(f"[Encryptor] Warning: could not encrypt field '{field}': {e}")
+            raise ValueError(
+                f"[Encryptor] Could not encrypt field '{field}' of memory "
+                f"{str(memory_id)[:8]}: {e}. Memory will not be uploaded."
+            ) from e
 
     encrypted["_encrypted"] = True
     return encrypted
@@ -192,33 +228,33 @@ def encrypt_memory_dict(memory: dict, encryptor: "Encryptor") -> dict:
 def decrypt_memory_dict(memory: dict, encryptor: "Encryptor") -> dict:
     """
     Decrypt sensitive fields of a memory dict after download from Supabase.
-    Safe to call on non-encrypted dicts — returns as-is if _encrypted not set.
+    Returns the dict unchanged if `_encrypted` is not set — callers that
+    receive data from the cloud must check `_encrypted` themselves first
+    (cloud_sync.pull_all does) and refuse unencrypted records.
+
+    Raises ValueError if any encrypted field fails to decrypt.
     """
-    import json
     if not memory.get("_encrypted"):
         return memory
 
+    memory_id = memory.get("id")
+    if not memory_id:
+        raise ValueError("[Encryptor] Encrypted memory has no id.")
+
     decrypted = dict(memory)
 
-    for field in ("short", "full", "keywords", "subtype", "source_msg"):
+    for field in ENCRYPTED_FIELDS:
         raw = memory.get(field)
         if not raw:
             continue
-        try:
-            plain = encryptor.decrypt(raw)
-            # keywords comes back as JSON string — deserialise
-            if field == "keywords":
-                try:
-                    plain = json.loads(plain)
-                except Exception:
-                    pass  # keep as string if parse fails
-            decrypted[field] = plain
-        except ValueError:
-            # Wrong key or tampered data — re-raise so caller knows
-            raise
-        except Exception as e:
-            print(f"[Encryptor] Warning: could not decrypt field '{field}': {e}")
-            # Leave as-is for unexpected non-crypto errors
+        plain = encryptor.decrypt(raw, aad=field_aad(memory_id, field))
+        # keywords comes back as JSON string — deserialise
+        if field == "keywords":
+            try:
+                plain = json.loads(plain)
+            except Exception:
+                pass  # keep as string if parse fails
+        decrypted[field] = plain
 
     decrypted.pop("_encrypted", None)
     return decrypted

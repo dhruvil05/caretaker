@@ -60,14 +60,9 @@ def local_compress(full_text: str, memory_type: str) -> tuple[str, list[str]]:
 
 def main():
     print("[REINDEX] Loading config...")
-    config_path = Path("config.json")
-    config = {}
-    if config_path.exists():
-        config = json.loads(config_path.read_text())
-
-    chromadb_path = config.get("database", {}).get(
-        "chromadb_path", "./data/chromadb"
-    )
+    from caretaker.paths import load_config, chromadb_dir
+    config = load_config()
+    chromadb_path = str(chromadb_dir(config))
 
     print(f"[REINDEX] ChromaDB path: {chromadb_path}")
     print("[REINDEX] Initializing VectorDB...")

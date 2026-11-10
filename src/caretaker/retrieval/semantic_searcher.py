@@ -110,6 +110,10 @@ class SemanticSearcher:
             record = record_map.get(mid)
             if not record:
                 continue
+            # SQLite is the source of truth: a memory deleted (archived) there
+            # must never be recalled, even if its vector is still in ChromaDB.
+            if record.get("status") == "ARCHIVED":
+                continue
 
             semantic_sim = _distance_to_similarity(hit.get("distance", 1.0))
 

@@ -519,11 +519,13 @@ class NightlyMaintenance:
             reindexed_count = 0
 
             for mem in candidates:
-                # Check if already in ChromaDB
+                # Skip if already indexed with the current SHORT text. Memories
+                # edited (e.g. in the dashboard) or restored since the last run
+                # are re-embedded here, so SQLite stays the source of truth.
                 try:
                     existing = self.vector_db.get(mem["id"])
-                    if existing:
-                        continue  # Already indexed — skip
+                    if existing and existing.get("short") == mem["short"]:
+                        continue
                 except Exception:
                     pass  # Not found — needs reindex
 
@@ -602,12 +604,10 @@ class NightlyMaintenance:
             logger.warning(f"[NightlyMaintenance] Stats report failed: {e}")
 
     def _write_log_file(self, report: str):
-        """Write maintenance report to logs/maintenance.log."""
+        """Write maintenance report to <data_dir>/logs/maintenance.log."""
         try:
-            from pathlib import Path
-            log_dir = Path(__file__).parent.parent / "logs"
-            log_dir.mkdir(exist_ok=True)
-            log_path = log_dir / "maintenance.log"
+            from caretaker.paths import logs_dir
+            log_path = logs_dir() / "maintenance.log"
 
             timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
             with open(log_path, "a", encoding="utf-8") as f:

@@ -10,6 +10,7 @@ Usage:
     caretaker export --status ACTIVE
 """
 
+from caretaker.paths import exports_dir
 import click
 import json
 from datetime import datetime, timezone
@@ -20,7 +21,7 @@ from caretaker.cli.formatters import print_success, print_error, print_info, GRE
 @click.command("export")
 @click.option(
     "--file", "output_file", default=None,
-    help="Output file path (default: caretaker_export_YYYYMMDD.json)"
+    help="Output file path (default: <data_dir>/exports/caretaker_export_YYYYMMDD_HHMMSS.json)"
 )
 @click.option(
     "--status", "status_filter", default=None,
@@ -49,7 +50,7 @@ def export_cmd(output_file, status_filter):
     # Resolve output path
     if not output_file:
         date_str    = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = f"caretaker_export_{date_str}.json"
+        output_file = str(exports_dir() / f"caretaker_export_{date_str}.json")
 
     output_path = Path(output_file)
 

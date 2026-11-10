@@ -29,6 +29,7 @@ Usage:
     caretaker maintenance
 """
 
+from caretaker.paths import load_config
 import click
 
 from caretaker.cli.commands.list_cmd    import list_cmd
@@ -89,6 +90,22 @@ cli.add_command(import_cmd,  name="import")
 cli.add_command(sync_cmd,    name="sync")
 cli.add_command(config_cmd,  name="config")
 
+
+@cli.command("dashboard")
+@click.option("--port", default=8765, show_default=True, help="Port on 127.0.0.1 (a free one is picked if busy)")
+@click.option("--no-browser", is_flag=True, default=False, help="Don't open the browser automatically")
+def dashboard_cmd(port, no_browser):
+    """Open the local memory dashboard in your browser (this computer only)."""
+    from caretaker.dashboard import run_dashboard
+    run_dashboard(port=port, open_browser=not no_browser)
+
+
+@cli.command("serve")
+def serve_cmd():
+    """Run the Caretaker MCP server over stdio (same as `caretaker-mcp`)."""
+    from caretaker.mcp_server.server import main as serve_main
+    serve_main()
+
 # ── Maintenance command (inline — triggers nightly pipeline now) ───────────────
 
 @cli.command("maintenance")
@@ -98,13 +115,7 @@ def maintenance_cmd():
     from pathlib import Path
     import json
 
-    config_path = Path(__file__).parent.parent.parent.parent / "config.json"
-    try:
-        with open(config_path) as f:
-            config = json.load(f)
-    except Exception as e:
-        click.echo(f"Could not load config: {e}")
-        return
+    config = load_config()
 
     click.echo(f"\n{CYAN}Running nightly maintenance…{RESET}")
 

@@ -22,21 +22,26 @@ Supabase table schema expected:
     created_at      TEXT,
     updated_at      TEXT,
     last_used       TEXT,
-    -- encrypted fields:
+    superseded_by   TEXT,
+    retrieval_count INTEGER,
+    -- encrypted fields (AES-256-GCM, see encrypt.py):
     short           TEXT,
     full            TEXT,
     keywords        TEXT,
     subtype         TEXT,
     source_msg      TEXT,
-    superseded_by   TEXT,
-    retrieval_count INTEGER,
     _encrypted      BOOLEAN DEFAULT TRUE
   );
 
 Setup:
   1. Create a Supabase project at https://supabase.com
   2. Create the 'memories' table (schema above)
-  3. Set supabase_url + supabase_key + encrypt_key in config.json
+  3. Lock the table down so only your own key can use it:
+       ALTER TABLE memories ENABLE ROW LEVEL SECURITY;
+     (add no policies) — the public anon key then has no access at all.
+  4. Set supabase_url + encrypt_key in config.json, and supabase_key to the
+     project's service_role key (Settings → API). It bypasses RLS, so keep it
+     only in your local config.json — never commit or share it.
 """
 
 import json
@@ -111,7 +116,7 @@ class CloudSync:
         except ImportError:
             logger.error(
                 "[CloudSync] 'supabase' package not installed. "
-                "Run: uv add supabase"
+                "Install the extra: pip install 'caretaker-mcp[cloud]'"
             )
             return False
         except Exception as e:
@@ -245,9 +250,18 @@ class CloudSync:
 
         for remote_mem in all_remote:
             try:
-                # Decrypt content fields
+                # Only accept records we encrypted ourselves. Anyone with write
+                # access to the table could otherwise plant plaintext memories,
+                # which would then be injected into future agent prompts.
+                if remote_mem.get("_encrypted") is not True:
+                    raise ValueError("record is not encrypted; refusing to import it")
+                if not remote_mem.get("full"):
+                    raise ValueError("record has no content")
+
+                # Decrypt content fields (raises on wrong key / tampering)
                 decrypted = decrypt_memory_dict(remote_mem, self._encryptor)
                 decrypted = self._prepare_for_local(decrypted)
+                decrypted = self._sanitise_remote_metadata(decrypted)
 
                 # Check if local copy is same or newer
                 with get_connection() as conn:
@@ -345,42 +359,57 @@ class CloudSync:
         for k, v in defaults.items():
             if k not in mem or mem[k] is None:
                 mem[k] = v
+        if isinstance(mem.get("keywords"), list):
+            mem["keywords"] = json.dumps(mem["keywords"])
+        return mem
+
+    @staticmethod
+    def _sanitise_remote_metadata(mem: dict) -> dict:
+        """
+        Metadata columns are stored unencrypted in Supabase, so treat them as
+        untrusted: clamp scores to their valid ranges and refuse timestamps in
+        the future (a far-future updated_at would otherwise win every
+        "is the remote copy newer?" check and overwrite local memories).
+        """
+        now = datetime.now(timezone.utc)
+
+        if not isinstance(mem.get("id"), str) or not 0 < len(mem["id"]) <= 64:
+            raise ValueError("invalid memory id")
+
+        for field in ("created_at", "updated_at", "last_used"):
+            value = mem.get(field)
+            if value is None:
+                continue
+            try:
+                ts = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+            except ValueError:
+                raise ValueError(f"invalid {field} timestamp")
+            if ts > now:
+                mem[field] = now.isoformat()
+
+        for field, default in (("importance", 0.5), ("decay_score", 1.0)):
+            try:
+                mem[field] = min(1.0, max(0.0, float(mem.get(field))))
+            except (TypeError, ValueError):
+                mem[field] = default
+
+        try:
+            mem["retrieval_count"] = max(0, int(mem.get("retrieval_count") or 0))
+        except (TypeError, ValueError):
+            mem["retrieval_count"] = 0
+
         return mem
 
     def _update_local(self, mem: dict):
-        """Update an existing local memory record with cloud version."""
-        from caretaker.storage.local_db import get_connection
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).isoformat()
-
-        with get_connection() as conn:
-            conn.execute(
-                """
-                UPDATE memories SET
-                    source_agent=?, keywords=?, short=?, full=?,
-                    type=?, subtype=?, fact_type=?, status=?,
-                    superseded_by=?, importance=?, decay_score=?,
-                    temperature=?, retrieval_count=?, updated_at=?,
-                    last_used=?, source_msg=?
-                WHERE id=?
-                """,
-                (
-                    mem.get("source_agent"),
-                    mem.get("keywords"),
-                    mem.get("short"),
-                    mem.get("full"),
-                    mem.get("type"),
-                    mem.get("subtype"),
-                    mem.get("fact_type"),
-                    mem.get("status"),
-                    mem.get("superseded_by"),
-                    mem.get("importance"),
-                    mem.get("decay_score"),
-                    mem.get("temperature"),
-                    mem.get("retrieval_count"),
-                    mem.get("updated_at", now),
-                    mem.get("last_used"),
-                    mem.get("source_msg"),
-                    mem["id"],
-                )
-            )
+        """
+        Update an existing local memory record with the cloud version.
+        Goes through local_db.update_memory_fields, which only writes columns
+        that exist in the local table (cloud-only fields like source_msg are
+        dropped) and keeps the cloud copy's updated_at.
+        """
+        from caretaker.storage.local_db import update_memory_fields
+        fields = {k: v for k, v in mem.items() if k != "id"}
+        if not update_memory_fields(mem["id"], fields, touch_updated_at=False):
+            raise RuntimeError("local update failed")

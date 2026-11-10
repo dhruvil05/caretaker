@@ -11,6 +11,7 @@ Usage:
     caretaker sync --full       (push ALL memories, not just recent)
 """
 
+from caretaker.paths import load_config
 import click
 from caretaker.cli.formatters import (
     print_success, print_error, print_info, print_warning, GREY, RESET
@@ -26,13 +27,7 @@ def sync_cmd(direction, full):
     from pathlib import Path
     import json
 
-    config_path = Path(__file__).parent.parent.parent.parent.parent / "config.json"
-    try:
-        with open(config_path) as f:
-            config = json.load(f)
-    except Exception as e:
-        print_error(f"Could not load config: {e}")
-        return
+    config = load_config()
 
     from caretaker.storage.cloud_sync import CloudSync
     cloud = CloudSync(config)

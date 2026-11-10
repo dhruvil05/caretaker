@@ -21,3 +21,5 @@ caretaker_export_20260525_111037.json
 *.bin
 
 config.json
+# Caretaker data directory (database, vector index, logs, exports, model cache)
+public/
