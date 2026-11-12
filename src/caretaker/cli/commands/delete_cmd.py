@@ -10,7 +10,7 @@ Usage:
     caretaker delete <id> --force     (skip confirmation)
 """
 
-from caretaker.paths import load_config, chromadb_dir
+from caretaker.paths import load_config
 import click
 from caretaker.cli.formatters import (
     print_success, print_error, print_info, print_warning,
@@ -57,20 +57,7 @@ def delete_cmd(memory_id, force):
         print_error("Failed to archive memory.")
         return
 
-    # Remove from ChromaDB too
-    try:
-        from caretaker.storage.vector_db import VectorDB
-        from pathlib import Path
-        import json
-
-        config = load_config()
-
-        chromadb_path = str(chromadb_dir(config))
-        vdb = VectorDB(persist_directory=chromadb_path)
-        vdb.initialize()
-        vdb.delete(mem["id"])
-    except Exception as e:
-        print_warning(f"Archived in SQLite but ChromaDB removal failed: {e}")
-
+    # Recall skips archived memories right away; the search-index entry is
+    # removed by the next maintenance run (the CLI never writes to ChromaDB).
     print_success(f"Memory archived.  {GREY}{mem['id'][:8]}…{RESET}")
     print_info("Restore with: caretaker restore " + mem["id"][:8])

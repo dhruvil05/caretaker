@@ -25,7 +25,8 @@ from caretaker.cli.formatters import (
 @click.option("--all",     "show_all", is_flag=True, default=False, help="Show ALL memories (every status)")
 @click.option("--agent",   "agent_id", default=None, help="Filter by source agent (claude, chatgpt, …)")
 @click.option("--limit",   "limit",    default=50,   help="Max memories to show (default 50)")
-def list_cmd(mem_type, outdated, cold, show_all, agent_id, limit):
+@click.option("--project", "project",  default=None, help="Only this project's memories (plus global ones)")
+def list_cmd(mem_type, outdated, cold, show_all, agent_id, limit, project):
     """List memories sorted by temperature (HOT first)."""
     from caretaker.storage.local_db import get_all_memories
 
@@ -42,6 +43,12 @@ def list_cmd(mem_type, outdated, cold, show_all, agent_id, limit):
     # Filter by type
     if mem_type:
         memories = [m for m in memories if m.get("type", "").upper() == mem_type.upper()]
+
+    # Filter by project (its own + global)
+    if project is not None:
+        from caretaker.projects import normalise_project
+        p = normalise_project(project)
+        memories = [m for m in memories if (m.get("project") or "") in (p, "")]
 
     # Filter by agent
     if agent_id:

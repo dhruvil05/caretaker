@@ -114,6 +114,11 @@ def resolve_conflict(
     if resolution == "REPLACE" and conflicting_ids:
         for old_id in conflicting_ids:
             local_db.update_status(old_id, "OUTDATED")
+            # 0.5: remember what replaced it, so the dashboard can show and undo it.
+            if new_memory.get("memory_id") and hasattr(local_db, "update_memory_fields"):
+                local_db.update_memory_fields(
+                    old_id, {"superseded_by": new_memory["memory_id"]}, touch_updated_at=False
+                )
             logger.info(
                 f"[ConflictChecker] Marked memory_id={old_id} as OUTDATED "
                 f"(replaced by new {new_memory.get('memory_type')} memory)"
@@ -128,6 +133,23 @@ def resolve_conflict(
     return new_memory
 
 
+def _normalise_row(m: Dict) -> Dict:
+    """Accept both database rows and the dicts used in tests."""
+    out = dict(m)
+    out.setdefault("memory_type", m.get("type", ""))
+    out.setdefault("memory_id", m.get("id"))
+    kw = m.get("keywords")
+    if isinstance(kw, str):
+        try:
+            import json
+            parsed = json.loads(kw)
+            kw = parsed if isinstance(parsed, list) else [str(parsed)]
+        except ValueError:
+            kw = [k.strip() for k in kw.split(",") if k.strip()]
+    out["keywords"] = [str(k) for k in (kw or [])]
+    return out
+
+
 def full_conflict_pipeline(
     new_memory: Dict,
     local_db,
@@ -137,9 +159,28 @@ def full_conflict_pipeline(
     Convenience: fetch existing memories, check conflict, resolve, return new_memory.
     Caller still inserts new_memory after this returns.
     """
-    # Fetch existing active memories of same type
     mem_type = new_memory.get("memory_type", "")
-    existing = local_db.get_active_by_type(mem_type)
+    project = new_memory.get("project") or ""
+    if hasattr(local_db, "search_fulltext"):
+        # 0.5: only the best keyword matches, not every memory of this type.
+        # Similarity is keyword overlap, so a memory sharing no words can't conflict.
+        keywords = list(new_memory.get("keywords") or [])
+        if keywords:
+            existing = local_db.search_fulltext(
+                keywords, limit=50, memory_type=mem_type,
+                keywords_only=True, min_shared=2 if len(keywords) >= 2 else 1,
+            )
+        else:
+            text = new_memory.get("full_text", "")
+            existing = local_db.search_fulltext(text, limit=50, memory_type=mem_type) if text else []
+    else:
+        existing = local_db.get_active_by_type(mem_type)
+    # Database rows use "type" and store keywords as JSON; check_conflict expects
+    # "memory_type" and a list. Replacement never crosses projects.
+    existing = [
+        _normalise_row(m) for m in existing
+        if (m.get("project") or "") == project
+    ]
 
     conflicting_ids, resolution = check_conflict(
         new_memory=new_memory,

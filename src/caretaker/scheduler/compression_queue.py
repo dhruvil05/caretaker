@@ -6,6 +6,10 @@ Flow:
   2. Adds job to this queue
   3. Worker picks job, runs compressor, updates SQLite + ChromaDB
   4. Status → ACTIVE
+
+0.5: the queue no longer needs the vector index (the default install has
+none), and on start it picks up memories still waiting for a summary — jobs
+live only in memory, so they are lost whenever the AI app closes.
 """
 
 import asyncio
@@ -41,12 +45,14 @@ class CompressionQueue:
     MAX_RETRIES = 3
     BASE_BACKOFF = 2.0   # seconds
     MAX_QUEUE_SIZE = 500
+    BACKLOG_BATCH = 200   # memories picked up per server start
 
-    def __init__(self, compressor, local_db, vector_db):
+    def __init__(self, compressor, local_db, vector_db=None):
         self.compressor = compressor
         self.local_db = local_db
-        self.vector_db = vector_db
+        self.vector_db = vector_db          # optional: None without the semantic extra
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=self.MAX_QUEUE_SIZE)
+        self._pending: set = set()          # memory ids queued or in progress
         self._running = False
         self._worker_task: Optional[asyncio.Task] = None
         # Event loop that owns the queue and the worker (set in start()).
@@ -102,6 +108,20 @@ class CompressionQueue:
         else:
             loop.call_soon_threadsafe(self._put_job, job)
 
+    def enqueue_backlog(self, limit: Optional[int] = None) -> int:
+        """Queue memories that are still waiting for a summary (oldest jobs are
+        lost when the server stops). Returns how many were queued."""
+        try:
+            rows = self.local_db.get_unsummarised(limit or self.BACKLOG_BATCH)
+        except Exception as e:
+            logger.warning(f"[CompressionQueue] Could not read the summary backlog: {e}")
+            return 0
+        for row in rows:
+            self.submit(row["id"], row["full"], row["type"] or "LEARNING")
+        if rows:
+            logger.info(f"[CompressionQueue] Queued {len(rows)} memories still waiting for a summary.")
+        return len(rows)
+
     async def enqueue(self, memory_id: str, full_text: str, memory_type: str):
         """
         Add a compression job to the queue (async API, kept for callers
@@ -112,10 +132,14 @@ class CompressionQueue:
     def _put_job(self, job: CompressionJob) -> None:
         """Put a job on the queue. Must run on the owning loop's thread."""
         memory_id = job.memory_id
+        if job.retry_count == 0 and memory_id in self._pending:
+            return   # already queued (e.g. by both a save and the backlog)
         try:
             self._queue.put_nowait(job)
+            self._pending.add(memory_id)
             logger.debug(f"[CompressionQueue] Enqueued job for memory_id={memory_id}")
         except asyncio.QueueFull:
+            self._pending.discard(memory_id)   # let a later start pick it up
             logger.warning(
                 f"[CompressionQueue] Queue full ({self.MAX_QUEUE_SIZE}). "
                 f"Skipping compression for memory_id={memory_id}"
@@ -128,8 +152,10 @@ class CompressionQueue:
                 job: CompressionJob = await asyncio.wait_for(
                     self._queue.get(), timeout=5.0
                 )
-                await self._process_job(job)
-                self._queue.task_done()
+                try:
+                    await self._process_job(job)
+                finally:
+                    self._queue.task_done()
             except asyncio.TimeoutError:
                 continue  # No jobs, keep waiting
             except asyncio.CancelledError:
@@ -149,10 +175,14 @@ class CompressionQueue:
             # Safe here: we're always called from inside the running worker
             # task, so get_running_loop() is guaranteed to succeed.
             loop = asyncio.get_running_loop()
+            # 0.5: memories saved before sensitive-data protection may still
+            # hold secrets; never send those to a (possibly remote) summariser.
+            from caretaker.privacy import protect
+            safe_text = protect(job.full_text).text
             short, keywords = await loop.run_in_executor(
                 None,
                 self.compressor.compress,
-                job.full_text,
+                safe_text,
                 job.memory_type,
             )
 
@@ -174,15 +204,17 @@ class CompressionQueue:
             importance_score = float((record or {}).get("importance") or 0.5)
 
             # Update ChromaDB index with SHORT embedding + correct metadata
-            self.vector_db.upsert(
-                memory_id=job.memory_id,
-                short=short,
-                keywords=keywords,
-                temperature=temperature,
-                memory_type=memory_type_real,
-                importance_score=importance_score,
-            )
+            if self.vector_db is not None:
+                self.vector_db.upsert(
+                    memory_id=job.memory_id,
+                    short=short,
+                    keywords=keywords,
+                    temperature=temperature,
+                    memory_type=memory_type_real,
+                    importance_score=importance_score,
+                )
 
+            self._pending.discard(job.memory_id)
             logger.info(f"[CompressionQueue] Compressed memory_id={job.memory_id} — short={short[:60]!r}")
 
         except Exception as e:
@@ -197,9 +229,12 @@ class CompressionQueue:
                 logger.info(f"[CompressionQueue] Retrying in {backoff:.1f}s...")
                 await asyncio.sleep(backoff)
 
+                # Re-queue this same job so retry_count is kept (a new job
+                # would start at 0 again and retry forever).
                 job.retry_count += 1
-                await self.enqueue(job.memory_id, job.full_text, job.memory_type)
+                self._put_job(job)
             else:
+                self._pending.discard(job.memory_id)
                 # Final failure — mark memory as ACTIVE with raw text only (no SHORT)
                 logger.error(
                     f"[CompressionQueue] All retries exhausted for memory_id={job.memory_id}. "

@@ -23,7 +23,7 @@ Phase 2 tasks (1-3 + stats) preserved exactly. Phase 3 adds tasks 4-7.
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -251,85 +251,75 @@ class NightlyMaintenance:
 
     async def _task_deduplication(self) -> int:
         """
-        Find near-identical ACTIVE memories of the same type and merge them.
-        Strategy:
-          - Group memories by TYPE
-          - Within each group, compare keyword overlap
-          - If two memories share > 70% keywords → merge SHORT summaries, keep newest
-          - Older duplicate marked OUTDATED
+        Find near-identical ACTIVE memories of the same type and project and merge them.
 
-        Returns count of memories merged/removed.
+        0.5 strategy (scales with memory count, not its square):
+          - Only memories changed in the last `dedup_lookback_days` (default 2;
+            0 = all) are checked — duplicates only appear when something new does.
+          - Each is compared with its 20 best full-text matches, not with every
+            memory of its type.
+          - Keyword overlap >= threshold → keep the newer, mark the older OUTDATED
+            (superseded_by → the newer, so it can be undone from the dashboard).
+
+        Returns count of memories merged.
         """
         logger.info("[NightlyMaintenance] Task 4: Deduplication...")
+        threshold = float(self.config.get("dedup_keyword_overlap_threshold", 0.70))
+        lookback = int(self.config.get("dedup_lookback_days", 2))
+        since = None
+        if lookback > 0:
+            since = (datetime.now(timezone.utc) - timedelta(days=lookback)).isoformat()
 
         try:
-            candidates = self.local_db.get_duplicate_candidates()
+            candidates = self.local_db.get_duplicate_candidates(since=since)
+            neighbour_search = getattr(self.local_db, "search_fulltext", None)
             merged_count = 0
+            outdated = set()
 
-            # Group by type
-            by_type: dict = {}
             for mem in candidates:
-                t = mem.get("type", "UNKNOWN")
-                by_type.setdefault(t, []).append(mem)
-
-            for mem_type, group in by_type.items():
-                if len(group) < 2:
+                if mem["id"] in outdated:
                     continue
+                keywords = sorted(self._parse_keywords(mem.get("keywords")))
+                if not keywords:
+                    continue
+                if neighbour_search:
+                    # Overlap >= 70% of 2+ keywords needs at least 2 shared ones.
+                    neighbours = neighbour_search(
+                        keywords, limit=20, memory_type=mem.get("type"), exclude_id=mem["id"],
+                        keywords_only=True, min_shared=2 if len(keywords) >= 2 else 1,
+                    )
+                else:   # stores without full-text search: compare within the candidate list
+                    neighbours = [c for c in candidates if c["id"] != mem["id"] and c.get("type") == mem.get("type")]
 
-                # Compare each pair within type group
-                checked_ids = set()
-                for i, mem_a in enumerate(group):
-                    if mem_a["id"] in checked_ids:
+                for other in neighbours:
+                    if other["id"] in outdated or mem["id"] in outdated:
                         continue
-                    for mem_b in group[i + 1:]:
-                        if mem_b["id"] in checked_ids:
-                            continue
-
-                        overlap = self._keyword_overlap(
-                            mem_a.get("keywords"), mem_b.get("keywords")
+                    if (other.get("project") or "") != (mem.get("project") or ""):
+                        continue
+                    overlap = self._keyword_overlap(mem.get("keywords"), other.get("keywords"))
+                    if overlap < threshold:
+                        continue
+                    newer, older = self._newer_first(mem, other)
+                    if newer.get("short") and older.get("short"):
+                        self.local_db.update_memory_fields(
+                            newer["id"], {"short": self._merge_shorts(newer["short"], older["short"])}
                         )
+                    self.local_db.update_memory_fields(
+                        older["id"], {"status": "OUTDATED", "superseded_by": newer["id"]}
+                    )
+                    if self.vector_db:
+                        try:
+                            self.vector_db.delete(older["id"])
+                        except Exception:
+                            pass
+                    outdated.add(older["id"])
+                    merged_count += 1
+                    logger.debug(
+                        f"[NightlyMaintenance] Dedup: merged {older['id'][:8]} → {newer['id'][:8]} "
+                        f"(overlap={overlap:.0%}, type={mem.get('type')})"
+                    )
 
-                        if overlap >= 0.70:
-                            # Merge: keep newest, mark oldest OUTDATED
-                            newer, older = self._newer_first(mem_a, mem_b)
-
-                            # Merge SHORT summaries if both have them
-                            if newer.get("short") and older.get("short"):
-                                merged_short = self._merge_shorts(
-                                    newer["short"], older["short"]
-                                )
-                                self.local_db.update_memory_fields(
-                                    newer["id"], {"short": merged_short}
-                                )
-
-                            # Mark older as OUTDATED
-                            self.local_db.update_memory_fields(
-                                older["id"],
-                                {
-                                    "status"       : "OUTDATED",
-                                    "superseded_by": newer["id"],
-                                }
-                            )
-
-                            # Remove older from ChromaDB if exists
-                            if self.vector_db:
-                                try:
-                                    self.vector_db.delete(older["id"])
-                                except Exception:
-                                    pass
-
-                            checked_ids.add(older["id"])
-                            merged_count += 1
-                            logger.debug(
-                                f"[NightlyMaintenance] Dedup: merged "
-                                f"{older['id'][:8]} → {newer['id'][:8]} "
-                                f"(overlap={overlap:.0%}, type={mem_type})"
-                            )
-
-            logger.info(
-                f"[NightlyMaintenance] Deduplication done. "
-                f"{merged_count} duplicates merged."
-            )
+            logger.info(f"[NightlyMaintenance] Deduplication done. {merged_count} merged.")
             return merged_count
 
         except Exception as e:

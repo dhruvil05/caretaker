@@ -19,6 +19,8 @@ _HEADER_RE = re.compile(
     re.IGNORECASE,
 )
 
+SHORT_MAX_CHARS = 240   # ~60 tokens, the selector's SHORT budget
+
 
 def _safe_text(text, max_len: int = None) -> str:
     """Flatten one memory's text so it can't break out of its line/block."""
@@ -49,18 +51,25 @@ def _load_config() -> dict:
     return load_config()
 
 
-def _get_core_identity(config: dict) -> str:
+def _get_core_identity(config: dict, scope: str = "") -> str:
+    """`scope` = current project ('' = all): prefer its own project/preference memories."""
     user_handle = _safe_text(config.get("user_handle"), 40) or "User"
+    scoped_sql = "AND project IN (?, '') ORDER BY (project = ?) DESC, importance DESC LIMIT {n}"
+    scoped_args = (scope, scope) if scope else ()
 
     with get_connection() as conn:
         personal = conn.execute(
             "SELECT full FROM memories WHERE type='PERSONAL' AND status='ACTIVE' ORDER BY created_at DESC LIMIT 1"
         ).fetchone()
         project = conn.execute(
-            "SELECT full FROM memories WHERE type='PROJECT' AND status='ACTIVE' ORDER BY importance DESC LIMIT 1"
+            "SELECT full FROM memories WHERE type='PROJECT' AND status='ACTIVE' "
+            + (scoped_sql.format(n=1) if scope else "ORDER BY importance DESC LIMIT 1"),
+            scoped_args,
         ).fetchone()
         prefs = conn.execute(
-            "SELECT full FROM memories WHERE type='PREFERENCE' AND status='ACTIVE' ORDER BY importance DESC LIMIT 3"
+            "SELECT full FROM memories WHERE type='PREFERENCE' AND status='ACTIVE' "
+            + (scoped_sql.format(n=3) if scope else "ORDER BY importance DESC LIMIT 3"),
+            scoped_args,
         ).fetchall()
 
     lines = [f"Name/Handle: {user_handle}"]
@@ -108,19 +117,21 @@ def _get_relevant_memories(relevant: list, use_full: bool) -> str:
         # Phase 3 fix: honour the per-memory form chosen by the budget engine
         # (selected_form), falling back to the batch use_full flag. This keeps a
         # memory selected as FULL from being collapsed to an 80-char SHORT snippet.
+        # SHORT_MAX_CHARS matches the selector's budget (~60 tokens of text);
+        # the old 80-char cut threw most of each summary away.
         form = mem.get("selected_form")
         if form == "FULL":
             content = mem.get("full") or mem.get("full_text", "")
             max_len = 300
         elif form == "SHORT":
             content = mem.get("short") or mem.get("full") or mem.get("full_text", "")
-            max_len = 80
+            max_len = SHORT_MAX_CHARS
         elif use_full:
             content = mem.get("full") or mem.get("full_text", "")
             max_len = 300
         else:
             content = mem.get("short") or mem.get("full") or mem.get("full_text", "")
-            max_len = 80
+            max_len = SHORT_MAX_CHARS
 
         if not content:
             continue
@@ -145,7 +156,7 @@ def build_whisper(context: dict) -> str:
     recent   = context.get("recent", [])
     use_full = context.get("use_full", False)
 
-    core     = _get_core_identity(config)
+    core     = _get_core_identity(config, context.get("project") or "")
     sessions = _get_recent_sessions(recent)
     memories = _get_relevant_memories(relevant, use_full)
 

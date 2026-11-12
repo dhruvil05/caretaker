@@ -9,13 +9,31 @@ Usage:
     caretaker import backup.json --skip-existing
 """
 
-from caretaker.paths import load_config, chromadb_dir
+from caretaker.paths import load_config
 import click
 import json
 from pathlib import Path
 from caretaker.cli.formatters import (
     print_success, print_error, print_info, print_warning, confirm
 )
+
+
+def _protect_imported(mem: dict) -> dict:
+    """Apply the sensitive-data policy to an imported memory's text."""
+    import json as _json
+    from caretaker.privacy import load_policy, protect, sensitivity_of
+    policy = load_policy()
+    mem = dict(mem)
+    findings = []
+    for field in ("full", "short"):
+        if isinstance(mem.get(field), str) and mem[field]:
+            result = protect(mem[field], policy=policy)
+            mem[field] = result.text
+            findings.extend(result.findings)
+    if findings:
+        mem["sensitivity"] = sensitivity_of(findings)
+        mem["privacy_findings"] = _json.dumps(findings)
+    return mem
 
 
 @click.command("import")
@@ -80,6 +98,7 @@ def import_cmd(input_file, skip_existing, force):
                 continue
 
         try:
+            mem = _protect_imported(mem)
             ok = upsert_memory(mem)
             if ok:
                 imported += 1
@@ -89,37 +108,8 @@ def import_cmd(input_file, skip_existing, force):
             print_warning(f"Failed to import {mem_id[:8]}: {e}")
             failed += 1
 
-    # Re-embed imported memories into ChromaDB
     if imported > 0:
-        try:
-            from caretaker.storage.vector_db import VectorDB
-            import json as _json
-
-            config = load_config()
-
-            chromadb_path = str(chromadb_dir(config))
-            vdb = VectorDB(persist_directory=chromadb_path)
-            vdb.initialize()
-
-            embed_count = 0
-            for mem in memories:
-                if mem.get("short") and mem.get("status") == "ACTIVE":
-                    try:
-                        vdb.add(
-                            memory_id=mem["id"],
-                            text=mem["short"],
-                            metadata={
-                                "type"       : mem.get("type", "UNKNOWN"),
-                                "temperature": mem.get("temperature", "WARM"),
-                            }
-                        )
-                        embed_count += 1
-                    except Exception:
-                        pass   # Non-fatal — server will re-embed on next maintenance
-
-            print_info(f"Re-embedded {embed_count} memories into ChromaDB.")
-        except Exception as e:
-            print_warning(f"ChromaDB re-embedding failed: {e} — run server to re-embed.")
+        print_info("The search index catches up at the next maintenance run (nightly, or `caretaker maintenance`).")
 
     print_success(f"Import complete.")
     print_info(f"  Imported : {imported}")

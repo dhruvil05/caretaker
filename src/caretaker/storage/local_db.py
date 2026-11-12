@@ -14,30 +14,25 @@ MIGRATION_PATH = Path(__file__).parent / "migrations" / "v001_initial.sql"
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    # The MCP server, dashboard and CLI can all use the database at once:
+    # WAL (set during migration) lets readers and a writer work concurrently,
+    # and busy_timeout waits for a lock instead of failing immediately.
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 10000")
     return conn
 
 
 def run_migrations():
-    sql = MIGRATION_PATH.read_text()
-    with get_connection() as conn:
-        conn.executescript(sql)
-
-    # Phase 2: add new columns if they don't exist yet (safe migration)
-    phase2_columns = [
-        "ALTER TABLE memories ADD COLUMN importance_score REAL DEFAULT 0.5",
-        "ALTER TABLE memories ADD COLUMN last_accessed_at TEXT",
-    ]
-    with get_connection() as conn:
-        for alter in phase2_columns:
-            try:
-                conn.execute(alter)
-            except Exception:
-                pass  # Column already exists — safe to ignore
+    """Bring the database schema up to date (versioned; backs up first). See storage/schema.py."""
+    from caretaker.storage.schema import migrate
+    migrate(DB_PATH)
 
 
 # ── Phase 1 functions (unchanged) ─────────────────────────────────────────────
+
+_SAVE_DEFAULTS = {"project": "", "sensitivity": "none", "privacy_findings": None, "privacy_reviewed": 0}
+
 
 def save_memory(memory: dict) -> bool:
     sql = """
@@ -45,17 +40,23 @@ def save_memory(memory: dict) -> bool:
             id, source_agent, keywords, short, full,
             type, subtype, fact_type, status, superseded_by,
             importance, decay_score, temperature, retrieval_count,
-            created_at, updated_at, last_used
+            created_at, updated_at, last_used,
+            project, sensitivity, privacy_findings, privacy_reviewed
         ) VALUES (
             :id, :source_agent, :keywords, :short, :full,
             :type, :subtype, :fact_type, :status, :superseded_by,
             :importance, :decay_score, :temperature, :retrieval_count,
-            :created_at, :updated_at, :last_used
+            :created_at, :updated_at, :last_used,
+            :project, :sensitivity, :privacy_findings, :privacy_reviewed
         )
     """
+    params = {**_SAVE_DEFAULTS, **memory}
+    for key in _SAVE_DEFAULTS:
+        if params[key] is None and key != "privacy_findings":
+            params[key] = _SAVE_DEFAULTS[key]
     try:
         with get_connection() as conn:
-            conn.execute(sql, memory)
+            conn.execute(sql, params)
         return True
     except Exception as e:
         logger.error(f"[DB] save_memory error: {e}")
@@ -75,15 +76,17 @@ def get_memories_by_type(mem_type: str = None, status: str = "ACTIVE") -> list:
     return [dict(r) for r in rows]
 
 
-def get_recent_memories(limit: int = 3) -> list:
-    sql = """
-        SELECT * FROM memories
-        WHERE status = 'ACTIVE'
-        ORDER BY created_at DESC
-        LIMIT ?
-    """
+def get_recent_memories(limit: int = 3, project: str = None) -> list:
+    """Newest active memories. With `project`, that project's plus global ones."""
+    sql = "SELECT * FROM memories WHERE status = 'ACTIVE'"
+    args = []
+    if project:
+        sql += " AND project IN (?, '')"
+        args.append(project)
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    args.append(limit)
     with get_connection() as conn:
-        rows = conn.execute(sql, (limit,)).fetchall()
+        rows = conn.execute(sql, args).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -348,23 +351,180 @@ def get_stats() -> dict:
     }
 
 
-def search_memories_by_keyword(query: str, limit: int = 10) -> list:
+_WORD_RE = None
+_STOPWORDS = {
+    "the", "and", "for", "you", "your", "are", "was", "with", "this", "that", "what", "which", "who",
+    "how", "why", "when", "where", "have", "has", "had", "can", "could", "should", "would", "will",
+    "about", "from", "into", "does", "did", "not", "but", "any", "all", "our", "out", "its", "i'm",
+    "my", "me", "is", "am", "an", "a", "to", "of", "in", "on", "it", "do", "be", "we", "us", "at",
+}
+
+
+def _search_terms(text_or_terms, max_terms: int = 12) -> list:
+    """Normalise a query (string or keyword list) into distinct lowercase search words."""
+    global _WORD_RE
+    if _WORD_RE is None:
+        import re
+        _WORD_RE = re.compile(r"\w[\w'\-]*\w|\w", re.UNICODE)
+    raw = text_or_terms if isinstance(text_or_terms, (list, tuple)) else [text_or_terms or ""]
+    terms = []
+    for chunk in raw:
+        for word in _WORD_RE.findall(str(chunk).lower()):
+            if len(word) >= 2 and word not in _STOPWORDS and word not in terms:
+                terms.append(word)
+    return terms[:max_terms]
+
+
+_FTS_CACHE = {}
+
+
+def _has_fulltext(conn) -> bool:
+    key = str(DB_PATH)
+    if key not in _FTS_CACHE:
+        from caretaker.storage.schema import has_fulltext
+        _FTS_CACHE[key] = has_fulltext(conn)
+    return _FTS_CACHE[key]
+
+
+def search_fulltext(
+    query,
+    limit: int = 20,
+    statuses=("ACTIVE",),
+    temperatures=None,
+    memory_type: str = None,
+    project: str = None,
+    exclude_id: str = None,
+    keywords_only: bool = False,
+    min_shared: int = 1,
+) -> list:
     """
-    Phase 3: Basic keyword search fallback for CLI search command.
-    Used when ChromaDB is unavailable or for quick CLI lookups.
-    Searches in full + short + keywords fields (LIKE).
+    0.5: ranked keyword search over short/full/keywords using SQLite FTS5 (BM25),
+    without loading every memory. `query` is a string or a keyword list. Falls
+    back to LIKE matching when this SQLite build has no FTS5.
+    Each result carries "match_score" (higher = better).
     """
-    pattern = f"%{query}%"
-    sql = """
-        SELECT * FROM memories
-        WHERE status = 'ACTIVE'
-          AND (full LIKE ? OR short LIKE ? OR keywords LIKE ?)
-        ORDER BY importance DESC, created_at DESC
-        LIMIT ?
-    """
+    terms = _search_terms(query)
+    if not terms:
+        return []
+    filters, args = [], []
+    if statuses:
+        filters.append(f"m.status IN ({','.join('?' * len(statuses))})")
+        args += list(statuses)
+    if temperatures:
+        filters.append(f"m.temperature IN ({','.join('?' * len(temperatures))})")
+        args += list(temperatures)
+    if memory_type:
+        filters.append("m.type = ?")
+        args.append(memory_type)
+    if project is not None:
+        filters.append("m.project IN (?, '')")      # the project's own memories + global ones
+        args.append(project)
+    if exclude_id:
+        filters.append("m.id != ?")
+        args.append(exclude_id)
+    where_extra = (" AND " + " AND ".join(filters)) if filters else ""
+
     with get_connection() as conn:
-        rows = conn.execute(sql, (pattern, pattern, pattern, limit)).fetchall()
+        if _has_fulltext(conn):
+            # Quote every term (no FTS syntax injection).
+            quoted = ['"' + t.replace('"', '""') + '"' for t in terms]
+            if keywords_only:
+                # Duplicate/conflict checks compare keyword sets: whole words in the
+                # keywords column only, and (optionally) at least `min_shared` of them.
+                if min_shared >= 2 and len(quoted) >= 2:
+                    from itertools import combinations
+                    match = " OR ".join(f"({a} AND {b})" for a, b in combinations(quoted[:8], 2))
+                else:
+                    match = " OR ".join(quoted)
+                match = f"keywords : ({match})"
+            else:
+                # Recall/search: prefix-match words of 3+ chars ("deploy" finds "deploys").
+                match = " OR ".join(q + ("*" if len(t) >= 3 else "") for q, t in zip(quoted, terms))
+            rows = conn.execute(
+                "SELECT m.*, bm25(memories_fts) AS _rank FROM memories_fts "
+                "JOIN memories m ON m.rowid = memories_fts.rowid "
+                f"WHERE memories_fts MATCH ?{where_extra} ORDER BY _rank LIMIT ?",
+                [match] + args + [limit],
+            ).fetchall()
+            results = []
+            for r in rows:
+                d = dict(r)
+                d["match_score"] = round(-d.pop("_rank"), 6)
+                results.append(d)
+            return results
+
+        # Fallback: LIKE on each term, ranked by how many terms match.
+        likes = " + ".join(
+            "((m.full LIKE ?) + (COALESCE(m.short,'') LIKE ?) + (COALESCE(m.keywords,'') LIKE ?) > 0)" for _ in terms
+        )
+        like_args = []
+        for t in terms:
+            like_args += [f"%{t}%"] * 3
+        rows = conn.execute(
+            f"SELECT m.*, ({likes}) AS _hits FROM memories m WHERE ({likes}) > 0{where_extra} "
+            "ORDER BY _hits DESC, m.importance DESC LIMIT ?",
+            like_args + like_args + args + [limit],
+        ).fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            d["match_score"] = float(d.pop("_hits"))
+            results.append(d)
+        return results
+
+
+def search_memories_by_keyword(query: str, limit: int = 10) -> list:
+    """Keyword search over ACTIVE memories (CLI search, MCP search tool). Ranked; see search_fulltext."""
+    return search_fulltext(query, limit=limit)
+
+
+def get_unsummarised(limit: int = 200) -> list:
+    """Active memories still waiting for a short summary, most important first."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, full, type FROM memories WHERE status = 'ACTIVE' "
+            "AND (short IS NULL OR TRIM(short) = '') AND full IS NOT NULL AND TRIM(full) != '' "
+            "ORDER BY importance DESC, created_at DESC LIMIT ?", (int(limit),)).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_top_memories(limit: int = 5, temperatures=("PRIORITY_HOT", "HOT", "WARM"), project: str = None) -> list:
+    """Most important active memories — general background when nothing specific matches."""
+    sql = "SELECT * FROM memories WHERE status = 'ACTIVE'"
+    args = []
+    if temperatures:
+        sql += f" AND temperature IN ({','.join('?' * len(temperatures))})"
+        args += list(temperatures)
+    if project is not None:
+        sql += " AND project IN (?, '')"
+        args.append(project)
+    sql += " ORDER BY importance DESC, updated_at DESC LIMIT ?"
+    args.append(limit)
+    with get_connection() as conn:
+        return [dict(r) for r in conn.execute(sql, args).fetchall()]
+
+
+def record_recalls(recalls: list) -> None:
+    """
+    0.5: record that memories were given to an agent — one transaction instead
+    of several connections per memory. `recalls` is a list of
+    (memory_id, new_temperature_or_None).
+    """
+    if not recalls:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    with get_connection() as conn:
+        for memory_id, new_temp in recalls:
+            conn.execute(
+                "UPDATE memories SET retrieval_count = retrieval_count + 1, last_used = ?, "
+                "last_accessed_at = ? WHERE id = ?",
+                (now, now, memory_id),
+            )
+            if new_temp:
+                conn.execute(
+                    "UPDATE memories SET temperature = ?, updated_at = ? WHERE id = ? AND temperature != ?",
+                    (new_temp, now, memory_id, new_temp),
+                )
 
 
 def upsert_memory(memory: dict) -> bool:
@@ -396,18 +556,21 @@ def get_memories_by_agent(agent_id: str) -> list:
     return [dict(r) for r in rows]
 
 
-def get_duplicate_candidates() -> list:
+def get_duplicate_candidates(since: str = None) -> list:
     """
-    Phase 3: Fetch ACTIVE memory pairs that share the same type and similar keywords.
-    Used by nightly deduplication task in nightly_maintenance.py.
-    Returns list of dicts with id, type, keywords, short for comparison.
+    ACTIVE memories with keywords, for nightly deduplication. With `since`
+    (ISO timestamp) only memories updated after it — the incremental check.
     """
     sql = """
-        SELECT id, type, keywords, short, full
+        SELECT id, type, keywords, short, full, project, created_at, updated_at
         FROM memories
         WHERE status = 'ACTIVE' AND keywords IS NOT NULL
-        ORDER BY type, created_at DESC
     """
+    args = []
+    if since:
+        sql += " AND updated_at >= ?"
+        args.append(since)
+    sql += " ORDER BY type, created_at DESC"
     with get_connection() as conn:
-        rows = conn.execute(sql).fetchall()
+        rows = conn.execute(sql, args).fetchall()
     return [dict(r) for r in rows]

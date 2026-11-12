@@ -10,32 +10,81 @@
   <script src="/static/app.js" defer></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.6 2.6L16 9.6"/></svg>
-      <span>Caretaker</span>
-    </div>
-    <nav class="tabs" aria-label="Sections">
-      <a href="#/overview" data-route="overview">Overview</a>
-      <a href="#/memories" data-route="memories">Memories</a>
-      <a href="#/activity" data-route="activity">Activity</a>
-    </nav>
-    <div class="live" id="live-status" data-state="idle">
-      <span class="live-dot" aria-hidden="true"></span>
-      <span class="live-text">Connecting…</span>
-      <button class="icon-btn" id="refresh-btn" type="button" aria-label="Refresh now" title="Refresh now">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
-      </button>
-    </div>
-    <div class="local-badge" title="All data is read from this computer">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
-      <span>On this device</span>
-    </div>
-  </header>
+  <a class="skip-link" href="#view">Skip to content</a>
+  <div class="app">
+    <aside class="sidebar" aria-label="Caretaker">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.6 2.6L16 9.6"/></svg>
+        <span class="brand-name">Caretaker</span>
+      </div>
 
-  <main id="view" tabindex="-1" aria-live="polite">
-    <p class="muted loading">Loading…</p>
-  </main>
+      <label class="scope">
+        <span class="scope-label">Project</span>
+        <span class="select-wrap">
+          <svg class="select-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          <select id="project-switcher" class="field scope-select" aria-label="Show memories from">
+            <option value="">All projects</option>
+          </select>
+          <svg class="select-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+        </span>
+      </label>
+
+      <nav class="nav" aria-label="Sections">
+        <a href="#/overview" data-route="overview">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+          <span class="nav-label">Overview</span>
+        </a>
+        <a href="#/memories" data-route="memories">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+          <span class="nav-label">Memories</span>
+        </a>
+        <a href="#/preview" data-route="preview">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span class="nav-label">Preview</span>
+        </a>
+        <a href="#/review" data-route="review">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+          <span class="nav-label">Review</span>
+          <span class="nav-count" data-count="review" hidden></span>
+        </a>
+        <a href="#/privacy" data-route="privacy">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.4-8 9-4.6-.6-8-4.5-8-9V6z"/></svg>
+          <span class="nav-label">Privacy</span>
+          <span class="nav-count attention" data-count="privacy" hidden></span>
+        </a>
+        <a href="#/activity" data-route="activity">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+          <span class="nav-label">Activity</span>
+        </a>
+        <a href="#/setup" data-route="setup">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+          <span class="nav-label">Setup</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-foot">
+        <a class="data-note" id="data-note" href="#/privacy" data-state="unknown">
+          <svg class="dn-local" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+          <svg class="dn-leaves" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 9.5a4 4 0 0 1-.5 8.5z"/><path d="M12 11v3M12 16.5v.01"/></svg>
+          <span class="dn-text">
+            <strong class="dn-title">Checking where data goes…</strong>
+            <span class="dn-sub"></span>
+          </span>
+        </a>
+        <div class="live" id="live-status" data-state="idle">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span class="live-text">Connecting…</span>
+          <button class="icon-btn" id="refresh-btn" type="button" aria-label="Refresh now" title="Refresh now">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <main id="view" tabindex="-1" aria-live="polite">
+      <p class="muted loading">Loading…</p>
+    </main>
+  </div>
 
   <div id="tooltip" class="tooltip" role="status" hidden></div>
 </body>

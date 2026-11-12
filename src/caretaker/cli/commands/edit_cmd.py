@@ -11,7 +11,7 @@ Usage:
     caretaker edit <id> --field full
 """
 
-from caretaker.paths import load_config, chromadb_dir
+from caretaker.paths import load_config
 import click
 import tempfile
 import subprocess
@@ -161,28 +161,9 @@ def edit_cmd(memory_id, field):
         print_error("Failed to update memory in database.")
         return
 
-    # Re-embed in ChromaDB if short was changed
+    print_success("Memory updated in database.")
     if "short" in updates:
-        try:
-            from caretaker.storage.vector_db import VectorDB
-            from pathlib import Path
-            import json
-
-            config = load_config()
-
-            chromadb_path = str(chromadb_dir(config))
-            vdb = VectorDB(persist_directory=chromadb_path)
-            vdb.initialize()
-            vdb.update(
-                memory_id=mem_id,
-                text=updates["short"],
-                metadata={"type": mem_type, "temperature": mem.get("temperature", "WARM")},
-            )
-            print_success("SHORT updated and re-embedded in ChromaDB.")
-        except Exception as e:
-            print_warning(f"SQLite updated but ChromaDB re-embed failed: {e}")
-    else:
-        print_success("Memory updated in database.")
+        print_info("The search index catches up at the next maintenance run (nightly, or `caretaker maintenance`).")
 
     for field_name, value in updates.items():
         preview = value[:60] + "…" if len(value) > 60 else value
