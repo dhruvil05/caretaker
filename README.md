@@ -27,17 +27,6 @@ No session boundaries. No forgetting. No re-introducing yourself.
 
 ---
 
-## Phases Completed
-
-| Phase | Title | Status |
-|-------|-------|--------|
-| 1 | Core Memory MVP | ✅ Complete |
-| 2 | Intelligence Layer | ✅ Complete |
-| 3 | Multi-Agent + CLI + Cloud | ✅ Complete |
-| 4 | Production Polish | 🔜 Next |
-
----
-
 ## Requirements
 
 - Windows, macOS or Linux
@@ -68,8 +57,13 @@ Caretaker stores everything locally in one folder:
 ```
 
 Nothing leaves your machine unless you turn it on:
-- **Compression** defaults to `"local"` (spaCy + TextRank, on-device). Setting `compression_model` to `"claude-haiku-4-5-20251001"` sends memory text to Anthropic's API for better summaries.
-- **Cloud backup** only runs if you configure Supabase, and everything is encrypted on your device first.
+- **Summaries** are made on your device by default (`"compression_model": "local"`: the leading sentences, or
+  spaCy + TextRank with the `nlp` extra). Setting `compression_model` to `"claude-haiku-4-5-20251001"` **and**
+  an `anthropic_api_key` sends memory text to Anthropic's API for better summaries (secrets are removed first).
+- **Cloud backup** only runs if you configure Supabase with an `encrypt_key`, and everything is encrypted on
+  your device first.
+
+The dashboard's sidebar and `caretaker doctor` always show whether anything leaves your device.
 
 To store data somewhere else, set `data_dir` in `config.json` (absolute, or relative to the config file's folder), or set the `CARETAKER_DATA_DIR` environment variable, which takes priority. `CARETAKER_CONFIG` points Caretaker at a different config file. Changing the location doesn't move existing data: copy the old folder over if you want to keep it.
 
@@ -200,9 +194,12 @@ From a source checkout (Option B):
 
 Other clients (Claude Code, Cursor, VS Code, …) use the same `command` / `args` / `env` in their own MCP config.
 
-### Add a system prompt (optional, recommended)
+### Make the agent use memory every turn
 
-Caretaker's tools describe themselves to the agent, but a short system prompt makes the agent use them every turn. In **Claude Desktop → Settings → General → Custom System Prompt** (or your client's equivalent), paste:
+Caretaker's tools describe themselves to the agent. To make the agent use them on every turn, either pick
+Caretaker's built-in prompt **`use_caretaker_memory`** from your app's prompt/attachments menu (MCP prompts;
+it takes an optional project name), or paste this into your app's custom instructions —
+**Claude Desktop → Settings → General → Custom System Prompt**:
 
 ```
 You have a persistent memory called Caretaker, available through MCP tools.
@@ -229,6 +226,8 @@ caretaker_forget_memory to remove it.
 | `caretaker_list_memories` | Lists recent memories, optionally by type | No |
 | `caretaker_forget_memory` | Archives one memory so it's never recalled | Archives (restorable) |
 
+Every tool takes an optional `project` argument (see [Projects](#projects)).
+
 To avoid a permission prompt on every turn, set `caretaker_get_context` and `caretaker_save_message` to **Always allow** (Claude Desktop → Settings → Connectors → Caretaker). Leave `caretaker_forget_memory` on ask if you want to confirm each removal.
 
 ### See and manage your memories
@@ -237,7 +236,21 @@ To avoid a permission prompt on every turn, set `caretaker_get_context` and `car
 caretaker dashboard
 ```
 
-Opens a local dashboard in your browser: browse, search, edit and archive memories, and see statistics and the memory workflow. It only listens on `127.0.0.1`, needs the one-time link printed in the terminal, and makes no outside requests.
+Opens a local dashboard in your browser. It only listens on `127.0.0.1`, needs the one-time link printed in
+the terminal, makes no outside requests, and refreshes live while you look at it.
+
+| Page | What you can do |
+|---|---|
+| **Overview** | Statistics, growth, the memory workflow, what is recalled most |
+| **Memories** | Search, filter, edit, archive/restore; select many for bulk archive, move to a project, change type |
+| **Preview** | Type a message and see exactly what an AI would receive from Caretaker, and why each memory was picked (nothing is saved or counted) |
+| **Review** | Memories Caretaker replaced with newer facts (undo if it got it wrong) and memories not used for 60 days |
+| **Privacy** | What leaves your device, scan stored memories, the review queue, and your privacy settings |
+| **Activity** | Recent saves, recent recalls, maintenance runs |
+| **Setup** | Health checks and copy-paste config for Claude Desktop, Cursor, VS Code, Windsurf and Claude Code |
+
+The project picker at the top of the sidebar filters every page. The dashboard works on phones and tablets
+too, in light and dark mode.
 
 ---
 
@@ -254,6 +267,62 @@ It logs to stderr and to `<data folder>/logs/caretaker.log`, starting with the d
 
 ---
 
+## Privacy: sensitive data
+
+Everything you tell an AI can become a memory, and memories are recalled into future conversations with
+**every** connected AI. So Caretaker checks text on your device **before** it is stored, summarised or indexed:
+
+| Found | Default | Example result |
+|---|---|---|
+| Secrets — API keys, tokens, passwords, private keys | **Removed** | `I use [REDACTED: Anthropic API key] for Orbit` (the rest of the message is kept) |
+| Card numbers, IBAN, SSN, Aadhaar, PAN (checksum-validated) | **Masked** | `[card number ending 4242]` |
+| Email addresses, phone numbers | **Kept, flagged for review** | shown in the dashboard's Privacy page |
+| Health, beliefs, sexuality, money topics | **Kept, flagged for review** | |
+
+The save confirmation says what happened (e.g. *Memory saved (privacy: 1 Anthropic API key redacted)*). Text
+being recalled is checked again before it reaches an AI, and so are imports, cloud restores and dashboard edits.
+
+Change any of this in the dashboard (Privacy → Settings) or in `config.json`:
+
+```json
+{
+  "privacy": {
+    "contact": "redact",
+    "custom_patterns": [{"pattern": "ACME-\\d+", "label": "client id"}],
+    "allowlist": ["team@example.com"]
+  }
+}
+```
+
+Actions are `redact`, `mask`, `flag` and `allow`. To check memories saved before you upgraded:
+
+```bash
+caretaker privacy scan            # report only
+caretaker privacy scan --apply    # redact/mask in place
+```
+
+Detection is best-effort and runs only on your device. Backups and exports made earlier still contain the
+original text — delete them if you don't need them.
+
+---
+
+## Projects
+
+Keep memories from different projects apart. A memory belongs to one project or is global; recall inside a
+project sees that project's memories plus global ones. Facts about you (name, where you live, …) are always global.
+
+The project comes from the `project` argument an AI passes to the tools, or from the `CARETAKER_PROJECT`
+environment variable — set it per workspace in your app's MCP config, e.g. a project's `.cursor/mcp.json`:
+
+```json
+{ "mcpServers": { "caretaker": { "command": "caretaker-mcp", "env": { "CARETAKER_PROJECT": "orbit" } } } }
+```
+
+With no project set, recall uses all memories. Move memories between projects in the dashboard (bulk action)
+or filter with `caretaker list --project orbit`.
+
+---
+
 ## CLI Reference
 
 After installing (or `uv sync` in a checkout), the `caretaker` command is available in your terminal.
@@ -266,6 +335,7 @@ caretaker list --outdated
 caretaker list --cold
 caretaker list --all
 caretaker list --agent chatgpt
+caretaker list --project orbit
 caretaker view <id>      # Show full memory detail
 caretaker search "python project"   # Semantic search
 caretaker edit <id>      # Open memory in editor
@@ -285,6 +355,8 @@ caretaker config set user_handle Dhruvil
 caretaker maintenance    # Run nightly maintenance now
 caretaker serve          # Run the MCP server (same as caretaker-mcp)
 caretaker dashboard      # Open the local memory dashboard
+caretaker doctor         # Check your setup, with fixes (--setup prints AI-app config)
+caretaker privacy scan   # Find secrets / personal data in stored memories (--apply to fix)
 caretaker score <id> 0.8 # Manually set importance score
 ```
 
@@ -307,203 +379,24 @@ The context presented to each agent never reveals which other agent had previous
 
 ---
 
-## Memory System
-
-### Memory Types
-
-| Type | Fact Type | Example | Conflict Behaviour |
-|------|-----------|---------|-------------------|
-| PROJECT | REPLACEABLE | "Building FastAPI project" | New replaces old |
-| PREFERENCE | REPLACEABLE | "Prefer Python over JS" | New replaces old |
-| PROBLEM | ADDITIVE | "Getting 404 on /api/users" | Both kept |
-| DECISION | ADDITIVE | "Decided to use Supabase" | Both kept |
-| LEARNING | ADDITIVE | "Learning transformer models" | Both kept |
-| PERSONAL | REPLACEABLE | "My name is Dhruvil" | New replaces old |
-| EMOTION | ADDITIVE | "Excited about the progress" | Both kept |
-| CORRECTION | REPLACEABLE | "Actually meant PostgreSQL" | New replaces old |
-
-### Temperature Tiers
-
-| Temperature | Score Condition | Retrieval |
-|-------------|----------------|-----------|
-| PRIORITY_HOT | importance > 0.7 | Always fetched first |
-| HOT | score > 0.5 | Fetched in standard retrieval |
-| WARM | 0.2 ≤ score ≤ 0.5 | Fetched only if semantically relevant |
-| COLD | score < 0.2 | Never fetched — skipped in search |
-| ARCHIVED | Manual or score < 0.2 | Never fetched — Supabase cold store |
-
-### Token Budget (Smart Auto)
-
-| Level | Signal | Budget | Memory Form |
-|-------|--------|--------|-------------|
-| L0 | "hi", "hello", "hey" | 80 tokens | Core identity only |
-| L1 | "quick", "list", "simple" | 200 tokens | Core only |
-| L2 | "explain", "what is", "help" | 350 tokens | Core + recent SHORT |
-| L3 | "code", "debug", "implement" | 500 tokens | Core + relevant SHORT |
-| L4 | "architecture", "design", "full flow" | 650 tokens | Core + relevant FULL |
-| L5 | "remember everything about" | 800 tokens | All relevant FULL |
-
----
-
-## Nightly Maintenance
-
-Runs automatically every night at `maintenance_time` (default 02:00 UTC).
-
-Trigger manually anytime:
-
-```bash
-caretaker maintenance
-```
-
-Pipeline runs 8 tasks in order:
-
-1. **Batch Decay** — HOT → WARM after 7 days idle, WARM → COLD after 14 days
-2. **ChromaDB Sync** — Remove OUTDATED and COLD entries from vector index
-3. **Stale Cleanup** — Archive memories with score < 0.2
-4. **Deduplication** — Merge near-identical memories (>70% keyword overlap)
-5. **Importance Boost** — +0.02 per retrieval above threshold (max +0.15)
-6. **Cloud Sync** — Encrypt + push last 24h updates to Supabase
-7. **ChromaDB Reindex** — Re-add any ACTIVE memories missing from vector index
-8. **Stats Report** — Write health summary to `<data_dir>/logs/maintenance.log`
-
----
-
-## Storage Architecture
-
-```
-LOCAL (primary) — all under data_dir (default: public/):
-  data/caretaker.db  ← SQLite: all memory records, source of truth
-  data/chromadb/     ← ChromaDB: SHORT embeddings for semantic search (HOT + WARM only)
-  logs/              ← server log + maintenance reports
-  exports/           ← JSON exports
-  cache/             ← model downloads
-  config.json        ← user settings (project root)
-
-CLOUD (backup):
-  Supabase PostgreSQL  ← encrypted full memory dump, nightly sync
-```
-
-All data that leaves the local machine is encrypted with AES-256-GCM before upload. Supabase never stores plaintext.
-
----
-
-## Project Structure
-
-The package lives under `src/caretaker/` (PEP 517 `src/` layout, built with hatchling). `python -m caretaker` and the `caretaker` CLI both resolve to `src/caretaker/cli/main.py`.
-
-```
-caretaker/
-├── src/
-│   └── caretaker/
-│       ├── __init__.py
-│       ├── paths.py            # Where all data lives (data_dir → db, chromadb, logs, exports, cache)
-│       ├── __main__.py         # Enables `python -m caretaker`
-│       ├── mcp_server/
-│       │   ├── server.py       # FastMCP entry point (imports stdout_guard first)
-│       │   ├── stdout_guard.py # Routes ALL output to stderr (protects JSON-RPC)
-│       │   ├── tools.py        # caretaker_get_context + caretaker_save_message
-│       │   ├── injector.py     # Builds whisper context string
-│       │   └── agent_adapter.py# Formats whisper per agent type (Phase 3)
-│       ├── capture/
-│       │   ├── capture_engine.py   # Main capture pipeline
-│       │   ├── entity_extractor.py # Pulls facts, tools, names from message
-│       │   ├── type_classifier.py  # Assigns TYPE + SUBTYPE + FACT_TYPE
-│       │   └── long_message_handler.py  # Splits/compresses messages >400 tokens
-│       ├── retrieval/
-│       │   ├── retrieval_engine.py # Main retrieval controller
-│       │   ├── topic_detector.py   # Message complexity L0–L5
-│       │   ├── keyword_extractor.py# Key term extraction
-│       │   ├── budget_engine.py    # Smart token budget calculator
-│       │   ├── memory_selector.py  # Picks SHORT or FULL per memory
-│       │   └── semantic_searcher.py# ChromaDB semantic search
-│       ├── memory/
-│       │   ├── conflict_checker.py # REPLACEABLE vs ADDITIVE conflict resolution
-│       │   ├── temperature_engine.py # HOT/WARM/COLD tier assignment
-│       │   └── importance_scorer.py# Initial importance score on capture
-│       ├── compression/
-│       │   ├── compressor.py       # Haiku API — generates SHORT + KEYWORDS
-│       │   ├── local_compressor.py # FREE offline spaCy+TextRank compression
-│       │   ├── templates.py        # Type-specific compression prompts
-│       │   └── keyword_generator.py# Extract keywords from SHORT
-│       ├── storage/
-│       │   ├── local_db.py         # SQLite CRUD — source of truth
-│       │   ├── vector_db.py        # ChromaDB handler
-│       │   ├── cloud_sync.py       # Supabase upload + restore (Phase 3)
-│       │   ├── encrypt.py          # AES-256-GCM encryption (Phase 3)
-│       │   └── migrations/
-│       │       └── v001_initial.sql
-│       ├── scheduler/
-│       │   ├── scheduler.py        # APScheduler nightly job (Phase 3)
-│       │   ├── nightly_maintenance.py  # 8-task maintenance pipeline (Phase 3)
-│       │   ├── maintenance.py      # Phase 2 async maintenance runner
-│       │   └── compression_queue.py# Async background compression
-│       ├── dashboard/          # Local web dashboard (`caretaker dashboard`)
-│       │   ├── app.py          # Starlette app + JSON API (127.0.0.1 only, token-protected)
-│       │   └── static/         # index.html, app.js, app.css (no external requests)
-│       └── cli/
-│           ├── main.py             # Click entry point (`caretaker` command)
-│           ├── formatters.py       # ANSI terminal formatting
-│           └── commands/
-│               ├── list_cmd.py
-│               ├── view_cmd.py
-│               ├── search_cmd.py
-│               ├── edit_cmd.py
-│               ├── delete_cmd.py
-│               ├── restore_cmd.py
-│               ├── stats_cmd.py
-│               ├── export_cmd.py
-│               ├── import_cmd.py
-│               ├── sync_cmd.py
-│               └── config_cmd.py
-├── tests/
-│   ├── conftest.py             # Shared pytest fixtures + asyncio auto-mode
-│   ├── fixtures/fixtures.py    # Shared test data
-│   ├── phase1/                 # Core pipeline (capture, classify, db, mcp, retrieval)
-│   ├── phase2/                 # Intelligence layer (compression, retrieval, decay)
-│   └── phase3/                 # Multi-agent + CLI + cloud + maintenance
-├── public/                  # Default data_dir: db, vector index, logs, exports, cache (gitignored)
-├── config.example.json      # Template config (copy → config.json)
-├── config.json              # System configuration (gitignored)
-├── pyproject.toml          # Dependencies + hatchling build + CLI entry point
-├── LICENSE                 # MIT
-├── .github/workflows/      # CI: tests on Windows, macOS, Linux + core-install check
-├── uv.lock                 # Locked dependency versions
-└── README.md
-```
-
-> **Tests run against `src/`:** `pyproject.toml` sets `pythonpath = ["src"]` and `testpaths = ["tests"]`, so `pytest tests/` imports the real `caretaker` package from `src/`.
-
----
-
-## Running Tests
-
-```bash
-# From the project root (pytest auto-discovers via pyproject config)
-pytest tests/ -v
-
-# Specific phase
-pytest tests/phase1/ -v
-pytest tests/phase2/ -v
-pytest tests/phase3/ -v
-
-# Cloud tests require Supabase credentials in config.json
-# They auto-skip if not configured — safe to run anywhere
-```
-
-Expected: 200+ tests passing across all three phases. Phase 3 cloud tests skip automatically when Supabase is not configured.
-
----
-
 ## Troubleshooting
+
+**Start with `caretaker doctor`** (or the dashboard's Setup page): it checks the data folder, config,
+database, search, privacy settings and which AI apps have Caretaker configured, and says how to fix each issue.
 
 **MCP not showing in Claude Desktop**  
 Check `claude_desktop_config.json` paths. All backslashes must be doubled (`\\`). Restart Claude Desktop after any config change.
 
 **ChromaDB index empty after restart**  
-Run `caretaker maintenance` to trigger a reindex. Or send a message — Phase 2 compression queue will re-embed on next server start.
+Run `caretaker maintenance` to trigger a reindex. Memories still waiting for a summary are also summarised
+and re-indexed the next time the server starts.
 
 **Compression not working**  
-Check `anthropic_api_key` in `config.json`. Haiku API key must be valid. The system falls back to storing raw text if Haiku fails — no crash. For zero-config operation, set `"compression_model": "local"` in `config.json` to use the built-in spaCy + TextRank summarizer (no API key, fully offline).
+`caretaker doctor` shows how many memories are waiting for a summary. Summaries are made in the background
+while the MCP server runs, and any left over are picked up when it next starts. With Haiku, check
+`anthropic_api_key` in `config.json`: if the API fails, Caretaker falls back to the on-device summariser. For
+fully offline operation set `"compression_model": "local"`. Until a summary exists, recall uses the memory's
+leading sentences.
 
 **Cloud sync failing**  
 Run `caretaker sync` and read the error. Most common causes: empty `supabase_url`, wrong `supabase_key`, or `encrypt_key` not set. Cloud sync is optional — system runs fully offline without it.
@@ -511,30 +404,13 @@ Run `caretaker sync` and read the error. Most common causes: empty `supabase_url
 **`caretaker` command not found**  
 Run `uv pip install -e .` from the project root. Then open a new terminal.
 
-**Tests failing with import errors**  
-Make sure you are running from the project root: `cd packages/caretaker` before `pytest tests/`.
-
 ---
 
-## Tech Stack
+## Learn more
 
-| Technology | Purpose | Phase |
-|-----------|---------|-------|
-| Python 3.12+ | Core language | 1 |
-| FastMCP | MCP server framework | 1 |
-| Pydantic | Tool schemas / config models | 1 |
-| SQLite | Local memory database | 1 |
-| spaCy | NLP entity extraction | 1 |
-| sentence-transformers | Local embeddings | 2 |
-| ChromaDB | Vector search index | 2 |
-| Anthropic Haiku | Memory compression | 2 |
-| APScheduler | Nightly maintenance | 3 |
-| Click | CLI framework | 3 |
-| cryptography | AES-256-GCM encryption | 3 |
-| Supabase | Cloud backup | 3 |
-| pytest | Test framework | All |
-| hatchling | Build backend (`src/` layout) | All |
-| uv | Package manager | All |
+- [How Caretaker works and how to develop it](docs/DEVELOPMENT.md)
+- [Security policy and reporting vulnerabilities](SECURITY.md)
+- [Changelog](CHANGELOG.md)
 
 ---
 

@@ -128,7 +128,7 @@ class TestMemories:
         assert d["total"] == 1
         d = client.get("/api/memories", headers=auth(), params={"limit": 1, "offset": 1}).json()
         assert d["total"] == 3 and len(d["items"]) == 1
-        assert set(d["facets"]) == {"type", "temperature", "status", "agent"}
+        assert set(d["facets"]) == {"type", "temperature", "status", "agent", "project", "sensitivity"}
         assert d["items"][0]["keywords"] == ["python"]
 
     def test_unknown_sort_and_bad_paging(self, client):

@@ -54,7 +54,17 @@ def run_capture(
     compression_queue=None, # Phase 2: optional CompressionQueue instance
     local_db=None,          # Phase 2: optional db reference for conflict check
     vector_db=None,         # Phase 2: embed into ChromaDB on save (immediate searchability)
+    project: str = "",      # 0.5: project scope ('' = global)
 ) -> dict:
+
+    # ── 0.5: sensitive-data protection ────────────────────────────────────
+    # Runs before anything else sees the text: storage, the search index,
+    # long-message summarisation (which may call the Haiku API) and logs.
+    # If detection itself fails, the save fails — never store unchecked text.
+    from caretaker.privacy import protect
+    privacy = protect(message)
+    message = privacy.text
+    privacy_findings = json.dumps(privacy.findings) if privacy.findings else None
 
     # ── Phase 1: classify + extract (unchanged) ───────────────────────────
     entities   = extract_entities(message)
@@ -64,6 +74,10 @@ def run_capture(
         logger.debug("[CAPTURE] Skipped — question or noise.")
         return {"id": "skipped", "type": "SKIP", "temperature": "COLD"}
     now        = datetime.now(timezone.utc).isoformat()
+
+    # 0.5: facts about the person themselves are never tied to one project.
+    from caretaker.projects import GLOBAL_TYPES, normalise_project
+    project = "" if classified["type"] in GLOBAL_TYPES else normalise_project(project)
 
     # ── Phase 2: importance score (replaces Phase 1 classified["importance"] directly) ──
     importance = score_importance(message, classified["type"])
@@ -111,6 +125,10 @@ def run_capture(
             "created_at":      now,
             "updated_at":      now,
             "last_used":       now,
+            # 0.5
+            "project":         project or "",
+            "sensitivity":     privacy.sensitivity,
+            "privacy_findings": privacy_findings,
         }
 
         # ── Phase 2: conflict resolution before save ───────────────────────
@@ -122,6 +140,7 @@ def run_capture(
                     "keywords":    chunk.get("keywords") or entities["keywords"],
                     "short":       chunk.get("short") or "",
                     "full_text":   chunk["full_text"],
+                    "project":     project or "",
                 },
                 local_db=local_db,
             )
@@ -168,8 +187,14 @@ def run_capture(
                     logger.warning(f"[CAPTURE] Compression queue enqueue failed: {e}")
         else:
             logger.error("[CAPTURE] Failed to save memory")
+            continue
 
         saved_memories.append(memory)
+
+    # Never report success for a save that didn't happen (the tool reply tells
+    # the AI and the user whether the memory exists).
+    if processed_chunks and not saved_memories:
+        raise RuntimeError("memory could not be saved to the database")
 
     # Return first memory for backward compatibility with Phase 1 callers
     return saved_memories[0] if saved_memories else {}

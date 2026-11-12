@@ -9,7 +9,7 @@ Usage:
     caretaker restore <id>
 """
 
-from caretaker.paths import load_config, chromadb_dir
+from caretaker.paths import load_config
 import click
 from caretaker.cli.formatters import (
     print_success, print_error, print_info, print_warning,
@@ -50,30 +50,8 @@ def restore_cmd(memory_id):
         print_error("Failed to restore memory.")
         return
 
-    # Re-embed in ChromaDB if SHORT exists
+    print_success("Memory restored to ACTIVE.")
     if mem.get("short"):
-        try:
-            from caretaker.storage.vector_db import VectorDB
-            from pathlib import Path
-            import json
-
-            config = load_config()
-
-            chromadb_path = str(chromadb_dir(config))
-            vdb = VectorDB(persist_directory=chromadb_path)
-            vdb.initialize()
-            vdb.add(
-                memory_id=mem["id"],
-                text=mem["short"],
-                metadata={
-                    "type"       : mem.get("type", "UNKNOWN"),
-                    "temperature": "WARM",   # restored always starts WARM
-                }
-            )
-            print_success("Memory restored to ACTIVE and re-embedded in ChromaDB.")
-        except Exception as e:
-            print_warning(f"Restored in SQLite but ChromaDB re-embed failed: {e}")
-            print_success("Memory restored to ACTIVE.")
+        print_info("The search index catches up at the next maintenance run (nightly, or `caretaker maintenance`).")
     else:
-        print_success("Memory restored to ACTIVE.")
         print_info("No SHORT summary — run server to trigger compression.")

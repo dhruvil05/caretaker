@@ -262,6 +262,7 @@ class CloudSync:
                 decrypted = decrypt_memory_dict(remote_mem, self._encryptor)
                 decrypted = self._prepare_for_local(decrypted)
                 decrypted = self._sanitise_remote_metadata(decrypted)
+                decrypted = self._protect_restored(decrypted)
 
                 # Check if local copy is same or newer
                 with get_connection() as conn:
@@ -400,6 +401,22 @@ class CloudSync:
         except (TypeError, ValueError):
             mem["retrieval_count"] = 0
 
+        return mem
+
+    @staticmethod
+    def _protect_restored(mem: dict) -> dict:
+        """Apply the sensitive-data policy to restored text (backups may predate 0.5)."""
+        from caretaker.privacy import load_policy, protect, sensitivity_of
+        policy = load_policy()
+        findings = []
+        for field in ("full", "short"):
+            if isinstance(mem.get(field), str) and mem[field]:
+                result = protect(mem[field], policy=policy)
+                mem[field] = result.text
+                findings.extend(result.findings)
+        if findings:
+            mem["sensitivity"] = sensitivity_of(findings)
+            mem["privacy_findings"] = json.dumps(findings)
         return mem
 
     def _update_local(self, mem: dict):

@@ -52,7 +52,7 @@ from caretaker.cli.formatters           import BOLD, RESET, CYAN, GREEN, YELLOW
     context_settings={"help_option_names": ["-h", "--help"]},
     invoke_without_command=True,
 )
-@click.version_option(version="0.3.2", prog_name="caretaker")
+@click.version_option(package_name="caretaker-mcp", prog_name="caretaker")
 @click.pass_context
 def cli(ctx):
     """
@@ -89,6 +89,11 @@ cli.add_command(export_cmd,  name="export")
 cli.add_command(import_cmd,  name="import")
 cli.add_command(sync_cmd,    name="sync")
 cli.add_command(config_cmd,  name="config")
+
+from caretaker.cli.commands.privacy_cmd import privacy_cmd
+cli.add_command(privacy_cmd, name="privacy")
+from caretaker.cli.commands.doctor_cmd import doctor_cmd
+cli.add_command(doctor_cmd, name="doctor")
 
 
 @cli.command("dashboard")

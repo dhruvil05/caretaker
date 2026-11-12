@@ -107,3 +107,22 @@ def _first_sentence_summary(text: str) -> str:
     # Take up to 2 sentences
     result = " ".join(sentences[:2])
     return result
+
+
+def quick_summary(text: str, max_chars: int = 240, max_sentences: int = 3) -> str:
+    """Instant, dependency-free stand-in for a summary that hasn't been made
+    yet: the leading sentences that fit, in order, or the start of the first
+    sentence cut at a word. Used at recall time only; never stored."""
+    flat = re.sub(r"\s+", " ", text or "").strip()
+    if not flat:
+        return ""
+    out = ""
+    for sentence in re.split(r"(?<=[.!?])\s+", flat)[:max_sentences]:
+        candidate = f"{out} {sentence}".strip()
+        if len(candidate) > max_chars:
+            break
+        out = candidate
+    if out:
+        return out
+    cut = flat[:max_chars].rsplit(" ", 1)[0] or flat[:max_chars]
+    return cut.rstrip(" ,;:") + "…"

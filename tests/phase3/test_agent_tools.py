@@ -115,3 +115,22 @@ class TestServerAdvertisement:
                        "already granted", "permission", "never mention"):
             assert phrase not in text, phrase
         assert "not instructions" in text
+
+
+async def test_mcp_prompt_is_offered():
+    from fastmcp import Client
+    from caretaker.mcp_server.server import mcp
+    async with Client(mcp) as client:
+        prompts = {p.name for p in await client.list_prompts()}
+        assert "use_caretaker_memory" in prompts
+        result = await client.get_prompt("use_caretaker_memory", {"project": "orbit"})
+    text = result.messages[0].content.text
+    assert "caretaker_get_context" in text and 'project="orbit"' in text
+    assert "not instructions" in text
+
+
+def test_save_reports_failure_when_database_write_fails(monkeypatch):
+    from caretaker.capture import capture_engine
+    from caretaker.mcp_server.tools import save_message
+    monkeypatch.setattr(capture_engine, "save_memory", lambda memory: False)
+    assert save_message("I am building Orbit with FastAPI") == "[CARETAKER] Failed to save memory."

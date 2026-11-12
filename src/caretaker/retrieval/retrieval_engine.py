@@ -3,10 +3,24 @@ from caretaker.retrieval.budget_engine import calculate_budget
 from caretaker.storage.local_db import (
     get_memories_by_type,
     get_recent_memories,
-    get_all_active_memories,
-    increment_retrieval_count,
-    touch_last_accessed,        # Phase 2
+    get_top_memories,
+    record_recalls,
+    search_fulltext,
 )
+
+# Semantic similarity below this is "not really about this message": such
+# memories are not injected as relevant and not counted/reheated as recalled.
+# Scale: (1 + cosine) / 2, so unrelated text sits around 0.5. Configurable via
+# "min_relevance" in config.json.
+DEFAULT_MIN_RELEVANCE = 0.6
+
+
+def _min_relevance() -> float:
+    try:
+        from caretaker.paths import load_config
+        return float(load_config().get("min_relevance", DEFAULT_MIN_RELEVANCE))
+    except (TypeError, ValueError):
+        return DEFAULT_MIN_RELEVANCE
 
 
 # ── Phase 1: keyword match scorer (kept as fallback) ──────────────────────────
@@ -24,12 +38,29 @@ def _keyword_match_score(memory: dict, keywords: list) -> float:
     return hits / max(len(keywords), 1)
 
 
+def _fill_missing_summaries(memories: list) -> list:
+    """Memories whose summary isn't made yet get a quick one for this recall, so
+    the budget can still pick the short form and cold memories aren't dropped."""
+    from caretaker.compression.local_compressor import quick_summary
+    for mem in memories:
+        if not str(mem.get("short") or "").strip():
+            full = mem.get("full") or mem.get("full_text") or ""
+            if full.strip():
+                mem["short"] = quick_summary(full)
+                mem["_quick_summary"] = True
+    return memories
+
+
 def retrieve_context(
     message: str,
     agent_id: str = "claude",
     semantic_searcher=None,   # Phase 2: optional SemanticSearcher instance
     memory_selector=None,     # Phase 2: optional memory_selector module
+    project: str = "",        # 0.5: '' = all memories; else that project + global
+    dry_run: bool = False,    # 0.5: preview only — don't count recalls or reheat
 ) -> dict:
+    in_scope = (lambda m: (m.get("project") or "") in (project, "")) if project else (lambda m: True)
+    scope = project or None
 
     keywords = extract_keywords(message)
 
@@ -38,22 +69,25 @@ def retrieve_context(
         # force_include_cold=True: a relevant memory that decayed to COLD would be
         # invisible otherwise. The rebalanced ranking demotes COLD, so it won't
         # dominate results — but it can now surface when genuinely relevant.
-        relevant = semantic_searcher.search(query=message, n_results=20, force_include_cold=True)
+        # Ask for more when scoped, since other projects' hits are filtered out.
+        hits = semantic_searcher.search(query=message, n_results=40 if project else 20, force_include_cold=True)
+        threshold = _min_relevance()
+        relevant = [m for m in hits if in_scope(m) and m.get("semantic_similarity", 1.0) >= threshold][:20]
 
         if relevant:
-            # Phase 2: reheat accessed memories + update last_accessed_at
+            # Reheat + count only memories that genuinely matched, in one transaction.
+            from caretaker.memory.temperature_engine import reheat
+            recalls = []
             for mem in relevant:
-                increment_retrieval_count(mem["id"])
-                touch_last_accessed(mem["id"])
-
-                # Reheat temperature in memory engine + update DB
-                from caretaker.memory.temperature_engine import reheat
-                from caretaker.storage.local_db import update_temperature
                 new_temp = reheat(mem.get("temperature", "WARM"))
-                if new_temp != mem.get("temperature"):
-                    update_temperature(mem["id"], new_temp)
+                changed = new_temp != mem.get("temperature")
+                if changed:
                     mem["temperature"] = new_temp
+                recalls.append((mem["id"], new_temp if changed else None))
+            if not dry_run:
+                record_recalls(recalls)
 
+            _fill_missing_summaries(relevant)
             budget_info = calculate_budget(message, relevant)
 
             # Phase 2: memory selector picks SHORT or FULL per memory
@@ -65,9 +99,10 @@ def retrieve_context(
             else:
                 selected = relevant
 
-            recent = get_recent_memories(limit=3)
+            recent = get_recent_memories(limit=3, project=scope)
 
             return {
+                "project":    project,
                 "relevant":   selected,
                 "recent":     recent,
                 "budget":     budget_info["budget"],
@@ -81,33 +116,30 @@ def retrieve_context(
         # Fall through to the keyword path below so the user still gets relevant
         # memories instead of only the 3 most-recent ones.
 
-    # ── Phase 1 fallback: keyword search (also used when semantic is empty) ─
-    all_mems = get_all_active_memories()
-
-    hot_mems = [
-        m for m in all_mems
-        if m.get("temperature") in ("PRIORITY_HOT", "HOT", "WARM")
-    ]
-
-    scored = []
-    for mem in hot_mems:
-        score = _keyword_match_score(mem, keywords)
-        scored.append((score, mem))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    relevant = [m for _, m in scored if _ > 0][:10]
+    # ── Keyword path (no vector search, or nothing semantically relevant) ──
+    # 0.5: ranked full-text search instead of loading every memory.
+    # Search with the extracted keywords AND the message's own words: the
+    # extractor can drop rare names (e.g. "Zylo003"), which are exactly the
+    # words BM25 ranks highest. Stopwords are removed in search_fulltext.
+    relevant = search_fulltext(
+        [*keywords, message], limit=10,
+        temperatures=("PRIORITY_HOT", "HOT", "WARM"),
+        project=scope,
+    )
+    if not dry_run:
+        record_recalls([(m["id"], None) for m in relevant])
 
     if not relevant:
-        relevant = hot_mems[:5]
+        # Nothing matched: give general background, but don't count it as recalled.
+        relevant = [{**m, "_reason": "background"} for m in get_top_memories(limit=5, project=scope)]
 
+    _fill_missing_summaries(relevant)
     budget_info = calculate_budget(message, relevant)
 
-    for mem in relevant:
-        increment_retrieval_count(mem["id"])
-
-    recent = get_recent_memories(limit=3)
+    recent = get_recent_memories(limit=3, project=scope)
 
     return {
+        "project":    project,
         "relevant":   relevant,
         "recent":     recent,
         "budget":     budget_info["budget"],

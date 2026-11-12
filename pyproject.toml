@@ -1,6 +1,6 @@
 [project]
 name = "caretaker-mcp"
-version = "0.4.0"
+version = "0.5.0"
 description = "Persistent, local-first memory for AI agents over MCP — one memory shared by Claude, ChatGPT, Cursor and any MCP client"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -54,6 +54,20 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/caretaker"]
+
+# The source archive must never pick up local files, even ones only ignored by
+# a developer's global git config (hatch reads the project .gitignore only).
+[tool.hatch.build.targets.sdist]
+exclude = [
+  ".claude/",
+  ".env",
+  "*.db", "*.db-wal", "*.db-shm",
+  "public/", "data/", "logs/", "chromadb/",
+  "src/caretaker/data/", "src/caretaker/logs/", "src/caretaker/chromadb/",
+  "config.json",
+  ".pytest_cache/", ".ruff_cache/",
+  "reindex_local.py",
+]
 
 # ── Pytest ─────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]

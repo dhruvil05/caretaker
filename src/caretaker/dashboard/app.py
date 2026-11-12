@@ -38,6 +38,7 @@ from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
 from caretaker import paths
+from caretaker.dashboard import api_v05
 from caretaker.storage import local_db
 
 logger = logging.getLogger(__name__)
@@ -54,12 +55,16 @@ SORTS = {
     "recalled": "retrieval_count DESC, updated_at DESC",
     "last_used": "last_used IS NULL, last_used DESC",
 }
-FILTER_COLUMNS = {"type": "type", "temperature": "temperature", "status": "status", "agent": "source_agent"}
+FILTER_COLUMNS = {"type": "type", "temperature": "temperature", "status": "status", "agent": "source_agent",
+                  "project": "project", "sensitivity": "sensitivity"}
 MEMORY_FIELDS = (
     "id", "type", "subtype", "fact_type", "status", "temperature", "importance",
     "decay_score", "retrieval_count", "source_agent", "short", "full", "keywords",
     "superseded_by", "created_at", "updated_at", "last_used",
+    "project", "sensitivity", "privacy_findings", "privacy_reviewed",
 )
+
+MEMORY_TYPES = {"PROJECT", "PREFERENCE", "PROBLEM", "DECISION", "LEARNING", "PERSONAL", "EMOTION", "CORRECTION"}
 
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
@@ -74,6 +79,28 @@ SECURITY_HEADERS = {
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+GLOBAL_PROJECT = "__global__"   # query value meaning "memories with no project"
+
+
+def _project_param(request: Request):
+    """None = all projects; '' = global only; otherwise one project."""
+    raw = request.query_params.get("project")
+    if raw in (None, "", "*"):
+        return None
+    if raw == GLOBAL_PROJECT:
+        return ""
+    from caretaker.projects import normalise_project
+    return normalise_project(raw)
+
+
+def _scoped(sql: str, args, project):
+    """Restrict a query on `memories` to one project via a CTE."""
+    if project is None:
+        return sql, list(args)
+    return ("WITH scoped AS (SELECT * FROM memories WHERE project = ?) "
+            + sql.replace("FROM memories", "FROM scoped"), [project, *args])
+
 
 def _json(data, status: int = 200) -> JSONResponse:
     return JSONResponse(data, status_code=status, headers=SECURITY_HEADERS)
@@ -94,6 +121,12 @@ def _public_memory(row: dict) -> dict:
             mem["keywords"] = [k.strip() for k in kw.split(",") if k.strip()]
     elif kw is None:
         mem["keywords"] = []
+    try:
+        mem["privacy_findings"] = json.loads(mem.get("privacy_findings") or "[]")
+    except (TypeError, ValueError):
+        mem["privacy_findings"] = []
+    mem["sensitivity"] = mem.get("sensitivity") or "none"
+    mem["project"] = mem.get("project") or ""
     return mem
 
 
@@ -161,13 +194,18 @@ async def overview(request: Request) -> Response:
     today = datetime.now(timezone.utc).date()
     start = today - timedelta(days=29)
 
+    project = _project_param(request)
     with local_db.get_connection() as conn:
+        def run(sql, args=()):
+            q, a = _scoped(sql, args, project)
+            return conn.execute(q, a)
+
         def scalar(sql, args=()):
-            return conn.execute(sql, args).fetchone()[0] or 0
+            return run(sql, args).fetchone()[0] or 0
 
         def grouped(sql):
             return [{"key": r[0] if r[0] is not None else "(none)", "count": r[1]}
-                    for r in conn.execute(sql).fetchall()]
+                    for r in run(sql).fetchall()]
 
         total = scalar("SELECT COUNT(*) FROM memories")
         by_status = grouped("SELECT status, COUNT(*) FROM memories GROUP BY status ORDER BY 2 DESC")
@@ -178,7 +216,7 @@ async def overview(request: Request) -> Response:
         by_agent = grouped(
             "SELECT source_agent, COUNT(*) FROM memories WHERE status='ACTIVE' GROUP BY source_agent ORDER BY 2 DESC"
         )
-        created = dict(conn.execute(
+        created = dict(run(
             "SELECT substr(created_at, 1, 10) AS d, COUNT(*) FROM memories "
             "WHERE substr(created_at, 1, 10) >= ? GROUP BY d", (start.isoformat(),)
         ).fetchall())
@@ -193,7 +231,7 @@ async def overview(request: Request) -> Response:
         cooling = scalar("SELECT COUNT(*) FROM memories WHERE status='ACTIVE' AND temperature IN ('WARM','COLD')")
         outdated = scalar("SELECT COUNT(*) FROM memories WHERE status='OUTDATED'")
         archived = scalar("SELECT COUNT(*) FROM memories WHERE status='ARCHIVED'")
-        top = [dict(r) for r in conn.execute(
+        top = [dict(r) for r in run(
             "SELECT id, type, short, full, retrieval_count, last_used FROM memories "
             "WHERE status='ACTIVE' AND retrieval_count > 0 ORDER BY retrieval_count DESC LIMIT 5"
         ).fetchall()]
@@ -205,8 +243,6 @@ async def overview(request: Request) -> Response:
                "count": created.get((start + timedelta(days=i)).isoformat(), 0)} for i in range(30)]
 
     data_dir = paths.data_dir(config)
-    compression = str(config.get("compression_model") or "local")
-    cloud_on = bool(config.get("supabase_url") and config.get("supabase_key") and config.get("encrypt_key"))
     runs = _parse_maintenance_log(paths.logs_dir(config) / "maintenance.log", limit=1)
 
     return _json({
@@ -221,14 +257,14 @@ async def overview(request: Request) -> Response:
         "growth": growth,
         "workflow": [
             {"stage": "Captured", "count": active + outdated + archived,
-             "detail": "Messages saved as memories (all time)"},
+             "detail": "Saved from your chats"},
             {"stage": "Compressed", "count": compressed,
-             "detail": f"{uncompressed} waiting for a short summary"},
+             "detail": f"{uncompressed:,} waiting for a short summary"},
             {"stage": "Recalled", "count": recalled,
-             "detail": f"{recalls_total} recalls in total"},
+             "detail": f"{recalls_total:,} recalls in total"},
             {"stage": "Hot", "count": hot, "detail": "Recalled first"},
-            {"stage": "Cooling", "count": cooling, "detail": "Warm or cold: recalled less often"},
-            {"stage": "Archived", "count": archived, "detail": f"{outdated} more replaced by newer facts"},
+            {"stage": "Cooling", "count": cooling, "detail": "Warm or cold, recalled less"},
+            {"stage": "Archived", "count": archived, "detail": f"+{outdated:,} replaced by newer facts"},
         ],
         "top_recalled": [
             {"id": t["id"], "type": t["type"], "text": (t["short"] or t["full"] or "")[:160],
@@ -240,11 +276,7 @@ async def overview(request: Request) -> Response:
             "database_bytes": _dir_size(paths.db_path(config)),
             "vector_index_bytes": _dir_size(paths.chromadb_dir(config)),
         },
-        "privacy": {
-            "compression": compression,
-            "compression_on_device": compression == "local",
-            "cloud_backup": cloud_on,
-        },
+        "privacy": api_v05.data_flow(config),
         "maintenance": {
             "next_run": _next_maintenance(config),
             "last_run": runs[0]["time"] if runs else None,
@@ -257,7 +289,11 @@ async def list_memories(request: Request) -> Response:
     where, args = [], []
     for param, column in FILTER_COLUMNS.items():
         value = q.get(param)
-        if value:
+        if param == "project" and value == GLOBAL_PROJECT:
+            value, match_empty = "", True
+        else:
+            match_empty = False
+        if value or match_empty:
             where.append(f"{column} = ?")
             args.append(value)
     search = (q.get("q") or "").strip()
@@ -330,15 +366,44 @@ async def update_memory(request: Request) -> Response:
         from caretaker.memory.temperature_engine import assign_temperature
         updates["importance"] = importance
         updates["temperature"] = assign_temperature(importance, mem.get("temperature", "WARM"))
-    unknown = set(body) - {"short", "full", "importance"}
+    if "project" in body:
+        from caretaker.projects import normalise_project
+        if not isinstance(body["project"], str):
+            return _error("'project' must be text", 400)
+        updates["project"] = normalise_project(body["project"])
+    if "type" in body:
+        if body["type"] not in MEMORY_TYPES:
+            return _error(f"'type' must be one of {sorted(MEMORY_TYPES)}", 400)
+        updates["type"] = body["type"]
+    unknown = set(body) - {"short", "full", "importance", "project", "type"}
     if unknown:
         return _error(f"Unknown fields: {sorted(unknown)}", 400)
     if not updates:
         return _error("Nothing to update", 400)
 
+    privacy_note = ""
+    if "short" in updates or "full" in updates:
+        from caretaker.privacy import load_policy, protect, sensitivity_of
+        policy = load_policy()
+        findings = []
+        for field in ("full", "short"):
+            text = updates.get(field, mem.get(field))
+            if text:
+                result = protect(text, policy=policy)
+                findings.extend(result.findings)
+                if field in updates:
+                    updates[field] = result.text
+        updates["sensitivity"] = sensitivity_of(findings) if findings else "none"
+        updates["privacy_findings"] = json.dumps(findings) if findings else None
+        updates["privacy_reviewed"] = 0
+        from caretaker.privacy import ProtectResult
+        privacy_note = ProtectResult("", findings).describe()
+
     if not local_db.update_memory_fields(memory_id, updates):
         return _error("Database update failed", 500)
-    return _json(_public_memory(local_db.get_memory_by_id(memory_id)))
+    body = _public_memory(local_db.get_memory_by_id(memory_id))
+    body["privacy_note"] = privacy_note
+    return _json(body)
 
 
 async def archive_memory(request: Request) -> Response:
@@ -361,12 +426,17 @@ async def restore_memory(request: Request) -> Response:
 
 async def activity(request: Request) -> Response:
     config = paths.load_config()
+    project = _project_param(request)
     with local_db.get_connection() as conn:
-        saves = [dict(r) for r in conn.execute(
+        def run(sql, args=()):
+            q, a = _scoped(sql, args, project)
+            return conn.execute(q, a)
+
+        saves = [dict(r) for r in run(
             "SELECT id, type, status, source_agent, short, full, created_at FROM memories "
             "ORDER BY created_at DESC LIMIT 25"
         ).fetchall()]
-        used = [dict(r) for r in conn.execute(
+        used = [dict(r) for r in run(
             "SELECT id, type, status, short, full, retrieval_count, last_used FROM memories "
             "WHERE last_used IS NOT NULL ORDER BY last_used DESC LIMIT 25"
         ).fetchall()]
@@ -410,6 +480,7 @@ def create_app(token: str, allowed_hosts=("127.0.0.1", "localhost")) -> Starlett
         Route("/api/memories/{id}", update_memory, methods=["PATCH"]),
         Route("/api/memories/{id}/archive", archive_memory, methods=["POST"]),
         Route("/api/memories/{id}/restore", restore_memory, methods=["POST"]),
+        *api_v05.routes(),
     ]
     return Starlette(
         routes=routes,
